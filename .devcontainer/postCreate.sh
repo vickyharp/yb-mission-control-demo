@@ -18,3 +18,8 @@ fi
 if [ -n "${GIT_USER_NAME:-}" ]; then
   git config --global user.name "$GIT_USER_NAME"
 fi
+
+# Python venv for ingest + dashboard; cluster data load still requires make setup.
+if [ -f /workspace/Makefile ]; then
+  make -C /workspace venv
+fi
