@@ -20,7 +20,7 @@ run_sql_file = cat $(1) | $(YSQL)
 endif
 
 .DEFAULT_GOAL := help
-.PHONY: help up down clean restart wait diagnose show status servers connect shell sql \
+.PHONY: help up down clean restart wait diagnose show welcome bootstrap status servers connect shell sql \
         venv db setup setup-lab demo-mode lab-mode load dash refill reset walkthrough \
         kill revive repair-node logs collect-logs
 
@@ -52,6 +52,12 @@ diagnose: ## Print cluster connectivity diagnostics
 
 show: ## Show cluster URLs and status
 	@bash scripts/wait-for-cluster.sh --show
+
+welcome: ## Print setup status and next steps (Codespaces attach banner)
+	@bash scripts/welcome.sh
+
+bootstrap: ## Load lab data if empty (devcontainer auto-runs; local: make bootstrap)
+	@MISSION_CONTROL_AUTO_BOOTSTRAP=1 bash scripts/bootstrap-data.sh
 
 status: ## Show yugabyted status for all nodes
 	@for n in 1 2 3; do \

@@ -18,6 +18,10 @@ print_ready_banner() {
    TServer UI   → http://localhost:9000
    Connect      → make connect
    Help         → make help
+
+   Devcontainer/Codespaces: make setup-lab runs automatically next (~3–5 min).
+   Local Docker (make up only): run make setup or make setup-lab yourself.
+   See CODESPACES.md or README.
 EOF
 }
 

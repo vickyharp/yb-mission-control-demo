@@ -12,7 +12,8 @@
   },
   "overrideCommand": false,
   "postCreateCommand": "bash /workspace/.devcontainer/postCreate.sh",
-  "postStartCommand": "bash /workspace/scripts/wait-for-cluster.sh",
+  "postStartCommand": "bash /workspace/scripts/wait-for-cluster.sh && bash /workspace/scripts/bootstrap-data.sh",
+  "postAttachCommand": "bash /workspace/scripts/welcome.sh",
   "containerEnv": {
     "COMPOSE_PROJECT_NAME": "yb-mission-control-demo",
     "YSQL_HOST": "yb-node1"
@@ -35,6 +36,9 @@
       "settings": {
         "terminal.integrated.defaultProfile.linux": "bash"
       }
+    },
+    "codespaces": {
+      "openFiles": ["CODESPACES.md"]
     }
   }
 }

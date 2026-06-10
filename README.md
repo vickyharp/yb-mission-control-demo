@@ -65,12 +65,20 @@ appear.
 
 1. **Start the cluster.**
    - *GitHub Codespaces (zero install):* **Code → Codespaces → Create
-     codespace on main.** The 3-node cluster starts automatically. First
-     boot takes a few minutes.
-   - *Local Docker:* `make up`. Give Docker ~6 GB of memory.
-2. **Pick your mode** from the table above: `make setup` or
+     codespace on main.** The cluster starts automatically, then **`make
+     setup-lab` runs on first boot** (~3M rows, no secondary indexes).
+     First boot takes several minutes total. **[CODESPACES.md](CODESPACES.md)**
+     opens in the editor; `make welcome` prints status anytime.
+   - *Local devcontainer (Reopen in Container):* same auto `setup-lab` as
+     Codespaces when you open the devcontainer.
+   - *Local Docker on the host:* `make up`. Give Docker ~6 GB of memory.
+     **No auto data load** — you run setup yourself (step 2).
+2. **Pick your mode** (local Docker and retries): `make setup` or
    `make setup-lab`. Either one creates the `mission_control` database and
    loads ~3M readings of real satellite history. A few minutes, one time.
+   Codespaces/devcontainer skip this step unless bootstrap failed or you
+   deleted the data (`make clean` wipes volumes and triggers a fresh load
+   on the next start).
 3. **Bring it to life.** Run `make load` in one terminal for live
    telemetry writes, and `make dash` in another for the dashboard on port
    **8501** (auto-forwarded in a Codespace).
