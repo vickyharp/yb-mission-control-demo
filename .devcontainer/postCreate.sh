@@ -23,3 +23,6 @@ fi
 if [ -f /workspace/Makefile ]; then
   make -C /workspace venv
 fi
+
+printf '%s\n' "[$(date +%H:%M:%S)] waiting — Codespace created; post-start will run on first start" \
+  > /workspace/bootstrap-status.txt

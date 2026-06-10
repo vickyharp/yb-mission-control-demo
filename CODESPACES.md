@@ -10,7 +10,13 @@ On first boot (and on every start until data exists), the environment:
 2. Waits until all three nodes answer on YSQL.
 3. Runs **`make setup-lab` automatically** if `telemetry` is still empty (~3M rows, no secondary indexes).
 
-That backfill is the slow part. You may see "Creating codespace" or a loading banner in the terminal while it runs. `make welcome` tells you whether load is still running or finished.
+That backfill is the slow part. While post-start runs:
+
+- **`bootstrap-status.txt`** updates every ~15s (opens automatically in Codespaces).
+- **`bootstrap.log`** has the full log (open in the editor).
+- **`make welcome`** prints phase, elapsed time, row count, and recent log lines.
+
+If `make welcome` keeps updating elapsed time and row counts during the backfill phase, it is not stuck.
 
 Demo mode indexes are **not** pre-built. Run `make demo-mode` (~2 min) when you want the presenter path with both indexes.
 

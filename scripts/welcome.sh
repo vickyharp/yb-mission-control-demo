@@ -31,37 +31,69 @@ See CODESPACES.md (Codespaces) or README.md (local Docker).
 EOF
 }
 
-print_setup_loading() {
+print_progress_footer() {
   cat <<'EOF'
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⏳ Loading demo data (~3–5 min) — lab mode, no secondary indexes yet
-
-The devcontainer runs make setup-lab automatically on first boot.
-Progress appears in the Codespace creation log and any terminal where
-bootstrap is running.
-
-When it finishes:
-  make load + make dash
-  script: sql/lab/walkthrough.sql
-
-For demo indexes after load: make demo-mode (~2 min)
+   Open bootstrap.log in the editor for the full post-start log.
+   make welcome   refresh this banner
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF
 }
 
-print_setup_failed() {
-  cat <<'EOF'
+print_setup_loading() {
+  local state="$1"
+  local phase="$2"
+  local detail="$3"
+  local nodes="$4"
+  local rows="$5"
+  local target="$6"
+  local elapsed="$7"
+  local pct=""
+
+  if [[ "$rows" =~ ^[0-9]+$ ]] && [[ "$target" =~ ^[0-9]+$ ]] && [ "$target" -gt 0 ] \
+     && [ "$rows" -gt 0 ]; then
+    pct="$(awk "BEGIN {printf \"%.0f%% of target\", ($rows/$target)*100}")"
+  fi
+
+  cat <<EOF
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-❌ Auto data load failed
+⏳ Post-start still running — not stuck if this line updates
+
+   Phase:    ${phase}
+   Detail:   ${detail}
+   Elapsed:  ${elapsed}
+   Cluster:  ${nodes}/3 nodes
+   Rows:     $(mc_status_format_rows "$rows") telemetry rows${pct:+ ($pct)}
+EOF
+  if [ -f "$MC_STATUS_ONELINER" ]; then
+    echo "   Status:   $(cat "$MC_STATUS_ONELINER")"
+  fi
+  if [ -f "$MC_STATUS_BOOTSTRAP_LOG" ]; then
+    echo ""
+    echo "   Recent log:"
+    mc_status_bootstrap_log_tail 5 | sed 's/^/     /'
+  fi
+  print_progress_footer
+}
+
+print_setup_failed() {
+  local detail="${1:-see bootstrap.log}"
+  cat <<EOF
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+❌ Auto data load failed — ${detail}
 
    make setup-lab     retry lab path
    make setup         or demo path (includes indexes)
-
    make show          cluster status
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF
+  if [ -f "$MC_STATUS_BOOTSTRAP_LOG" ]; then
+    echo ""
+    echo "   Recent log:"
+    mc_status_bootstrap_log_tail 8 | sed 's/^/     /'
+  fi
+  print_progress_footer
 }
 
 print_ready() {
@@ -87,6 +119,18 @@ EOF
 }
 
 print_cluster_waiting() {
+  local state phase detail elapsed nodes
+  state="$(mc_status_bootstrap_state)"
+  phase="$(mc_status_bootstrap_phase)"
+  detail="$(mc_status_bootstrap_detail)"
+  elapsed="$(mc_status_elapsed_human "$(mc_status_read_field "started_at")")"
+  nodes="$(mc_status_cluster_nodes)"
+
+  if [ "$state" = "running" ] && [ "$phase" = "cluster" ]; then
+    print_setup_loading "$state" "$phase" "$detail" "$nodes" "0" "$MC_STATUS_TARGET_ROWS" "$elapsed"
+    return
+  fi
+
   cat <<'EOF'
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -94,42 +138,50 @@ print_cluster_waiting() {
 
    bash scripts/wait-for-cluster.sh
    make show
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF
+  if [ -f "$MC_STATUS_BOOTSTRAP_LOG" ]; then
+    echo ""
+    echo "   Recent log:"
+    mc_status_bootstrap_log_tail 5 | sed 's/^/     /'
+  fi
+  print_progress_footer
 }
 
 main() {
-  local nodes rows indexes bootstrap_state
+  local nodes rows indexes state phase detail target elapsed started
 
   nodes="$(mc_status_cluster_nodes)"
+  state="$(mc_status_bootstrap_state)"
+  phase="$(mc_status_bootstrap_phase)"
+  detail="$(mc_status_bootstrap_detail)"
+  target="$(mc_status_read_field "target_rows")"
+  started="$(mc_status_read_field "started_at")"
+  elapsed="$(mc_status_elapsed_human "$started")"
+  rows="$(mc_status_telemetry_rows)"
+
   if [ "$nodes" != "3" ]; then
     print_cluster_waiting
     return 0
   fi
 
   if mc_status_data_loaded; then
-    rows="$(mc_status_telemetry_rows)"
     indexes="$(mc_status_secondary_indexes)"
     print_ready "$rows" "$indexes"
     return 0
   fi
 
-  bootstrap_state="$(mc_status_bootstrap_state)"
+  if [ "$state" = "failed" ]; then
+    print_setup_failed "$detail"
+    return 0
+  fi
+
   if mc_status_should_auto_bootstrap; then
-    case "$bootstrap_state" in
-      running)
-        print_setup_loading
-        return 0
-        ;;
-      failed)
-        print_setup_failed
-        return 0
-        ;;
-      *)
-        print_setup_loading
-        return 0
-        ;;
-    esac
+    if [ -z "$state" ]; then
+      phase="starting"
+      detail="post-start has not written status yet (very early boot)"
+    fi
+    print_setup_loading "$state" "$phase" "$detail" "$nodes" "$rows" "${target:-$MC_STATUS_TARGET_ROWS}" "$elapsed"
+    return 0
   fi
 
   print_setup_manual

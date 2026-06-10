@@ -12,7 +12,7 @@
   },
   "overrideCommand": false,
   "postCreateCommand": "bash /workspace/.devcontainer/postCreate.sh",
-  "postStartCommand": "bash /workspace/scripts/wait-for-cluster.sh && bash /workspace/scripts/bootstrap-data.sh",
+  "postStartCommand": "bash /workspace/scripts/post-start.sh",
   "postAttachCommand": "bash /workspace/scripts/welcome.sh",
   "containerEnv": {
     "COMPOSE_PROJECT_NAME": "yb-mission-control-demo",
@@ -38,7 +38,7 @@
       }
     },
     "codespaces": {
-      "openFiles": ["CODESPACES.md"]
+      "openFiles": ["CODESPACES.md", "bootstrap-status.txt"]
     }
   }
 }

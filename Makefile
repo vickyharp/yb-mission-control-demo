@@ -21,7 +21,8 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help up down clean restart wait diagnose show welcome bootstrap status servers connect shell sql \
-        venv db setup setup-lab demo-mode lab-mode load dash refill reset walkthrough \
+        venv db setup setup-lab setup-lab-schema setup-lab-views setup-lab-backfill setup-lab-analyze \
+        demo-mode lab-mode load dash refill reset walkthrough \
         kill revive repair-node logs collect-logs
 
 help: ## Show available commands
@@ -87,6 +88,18 @@ db: ## Create the mission_control database (settings come from sql/core/01_schem
 	  || $(YSQL_ADMIN) -c "CREATE DATABASE $(DB)"
 	@echo "database $(DB) ready"
 
+setup-lab-schema: db ## (internal) lab setup step: schema
+	$(call run_sql_file,sql/core/01_schema.sql)
+
+setup-lab-views: ## (internal) lab setup step: views
+	$(call run_sql_file,sql/core/02_views.sql)
+
+setup-lab-backfill: venv ## (internal) lab setup step: historical telemetry
+	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
+
+setup-lab-analyze: ## (internal) lab setup step: ANALYZE
+	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
+
 setup: venv db ## DEMO mode: schema + ~3M rows of real satellite history + both indexes pre-built
 	$(call run_sql_file,sql/core/01_schema.sql)
 	$(call run_sql_file,sql/core/02_views.sql)
@@ -95,11 +108,7 @@ setup: venv db ## DEMO mode: schema + ~3M rows of real satellite history + both 
 	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
 	@echo "✅ demo mode ready. make load (terminal 1) + make dash (terminal 2), then sql/demo/walkthrough.sql"
 
-setup-lab: venv db ## LAB mode: same data, NO secondary indexes; you build them in the lab
-	$(call run_sql_file,sql/core/01_schema.sql)
-	$(call run_sql_file,sql/core/02_views.sql)
-	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
-	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
+setup-lab: venv setup-lab-schema setup-lab-views setup-lab-backfill setup-lab-analyze ## LAB mode: same data, NO secondary indexes; you build them in the lab
 	@echo "✅ lab mode ready. Open sql/lab/walkthrough.sql and build the indexes yourself"
 
 demo-mode: ## Switch to demo mode: (re)build both indexes (~2 min; not mid-presentation)

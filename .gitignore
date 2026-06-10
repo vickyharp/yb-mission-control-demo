@@ -20,6 +20,10 @@ yugabyte-client-*.tar.gz
 # macOS
 .DS_Store
 
+# Codespace post-start progress (live during bootstrap)
+bootstrap.log
+bootstrap-status.txt
+
 # Python
 .venv/
 __pycache__/
