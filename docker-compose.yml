@@ -1,0 +1,91 @@
+name: yb-mission-control-demo
+
+services:
+  yb-node1:
+    image: yugabytedb/yugabyte:latest
+    command:
+      - /home/yugabyte/bin/yugabyted
+      - start
+      - --advertise_address=yb-node1
+      - --cloud_location=cloud.region.zone1
+      - --fault_tolerance=zone
+      - --tserver_flags=allowed_preview_flags_csv=enable_object_locking_for_table_locks,enable_object_locking_for_table_locks=true,ysql_yb_ddl_transaction_block_enabled=true
+      - --daemon=false
+    ports:
+      - "7000:7000"
+      - "9000:9000"
+      - "5433:5433"
+      - "7100:7100"
+      - "9100:9100"
+      - "15433:15433"
+    volumes:
+      - yb-node1-data:/root/var
+    healthcheck:
+      test: ["CMD", "bash", "-c", "/home/yugabyte/bin/yugabyted status 2>/dev/null | grep -qE 'Status\\s*:\\s*(Bootstrapping|Running)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    networks:
+      - yb-net
+
+  yb-node2:
+    image: yugabytedb/yugabyte:latest
+    command:
+      - /home/yugabyte/bin/yugabyted
+      - start
+      - --advertise_address=yb-node2
+      - --join=yb-node1
+      - --cloud_location=cloud.region.zone2
+      - --fault_tolerance=zone
+      - --tserver_flags=allowed_preview_flags_csv=enable_object_locking_for_table_locks,enable_object_locking_for_table_locks=true,ysql_yb_ddl_transaction_block_enabled=true
+      - --daemon=false
+    volumes:
+      - yb-node2-data:/root/var
+    healthcheck:
+      test: ["CMD", "bash", "-c", "/home/yugabyte/bin/yugabyted status 2>/dev/null | grep -qE 'Status\\s*:\\s*(Bootstrapping|Running)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    depends_on:
+      yb-node1:
+        condition: service_healthy
+    networks:
+      - yb-net
+
+  yb-node3:
+    image: yugabytedb/yugabyte:latest
+    command:
+      - /home/yugabyte/bin/yugabyted
+      - start
+      - --advertise_address=yb-node3
+      - --join=yb-node1
+      - --cloud_location=cloud.region.zone3
+      - --fault_tolerance=zone
+      - --tserver_flags=allowed_preview_flags_csv=enable_object_locking_for_table_locks,enable_object_locking_for_table_locks=true,ysql_yb_ddl_transaction_block_enabled=true
+      - --daemon=false
+    volumes:
+      - yb-node3-data:/root/var
+    healthcheck:
+      test: ["CMD", "bash", "-c", "/home/yugabyte/bin/yugabyted status 2>/dev/null | grep -qE 'Status\\s*:\\s*(Bootstrapping|Running)'"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    depends_on:
+      yb-node1:
+        condition: service_healthy
+      yb-node2:
+        condition: service_healthy
+    networks:
+      - yb-net
+
+volumes:
+  yb-node1-data:
+  yb-node2-data:
+  yb-node3-data:
+
+networks:
+  yb-net:
+    driver: bridge

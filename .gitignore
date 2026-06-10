@@ -1,0 +1,26 @@
+# Local environment (git identity, secrets)
+.devcontainer/.env
+.env
+.env.local
+.env.*.local
+
+# Generated log snapshots (make collect-logs)
+logs/
+support-bundles/
+
+
+# Local Yugabyte client installs (use brew or the devcontainer instead)
+yugabyte-client-*/
+yugabyte-client-*.tar.gz
+
+# Editor settings (user-specific)
+.vscode/
+.idea/
+
+# macOS
+.DS_Store
+
+# Python
+.venv/
+__pycache__/
+*.pyc

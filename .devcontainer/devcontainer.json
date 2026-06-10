@@ -1,0 +1,40 @@
+{
+  "name": "Mission Control — YugabyteDB Bucket Index Demo",
+  "dockerComposeFile": "docker-compose.yml",
+  "service": "devenv",
+  "workspaceFolder": "/workspace",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
+  },
+  "overrideCommand": false,
+  "postCreateCommand": "bash /workspace/.devcontainer/postCreate.sh",
+  "postStartCommand": "bash /workspace/scripts/wait-for-cluster.sh",
+  "containerEnv": {
+    "COMPOSE_PROJECT_NAME": "yb-mission-control-demo",
+    "YSQL_HOST": "yb-node1"
+  },
+  "remoteEnv": {
+    "YSQL_HOST": "yb-node1"
+  },
+  "forwardPorts": [2222, 7000, 9000, 5433, 15433, 8501],
+  "portsAttributes": {
+    "2222": { "label": "SSH (Remote-SSH / Cursor)", "onAutoForward": "silent" },
+    "7000": { "label": "YB Master UI", "onAutoForward": "silent" },
+    "9000": { "label": "YB TServer UI (node 1)", "onAutoForward": "silent" },
+    "5433": { "label": "YSQL (PostgreSQL wire)", "onAutoForward": "silent" },
+    "15433": { "label": "yugabyted UI", "onAutoForward": "openBrowser" },
+    "8501": { "label": "Mission Control dashboard", "onAutoForward": "silent" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-ossdata.vscode-postgresql"],
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  }
+}
