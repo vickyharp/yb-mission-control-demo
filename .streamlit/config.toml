@@ -1,0 +1,6 @@
+# Without this, an autorefresh that fires while the demo query is still
+# running (easy in the seq-scan state) interrupts the in-flight run and
+# leaves ghosted duplicate widgets on screen. False = let the current run
+# finish, then apply the queued rerun.
+[runner]
+fastReruns = false

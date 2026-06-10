@@ -1,7 +1,7 @@
 -- ════════════════════════════════════════════════════════════════════════════
 -- Recover from a botched run: drop both secondary indexes so they can be
--- rebuilt fresh. `make reset` runs this and then sql/04_indexes.sql.
--- Data is untouched. Rebuild takes a minute or two on 3M rows — do this
+-- rebuilt fresh. `make lab-mode` runs just this; `make demo-mode` runs this then sql/core/indexes.sql.
+-- Data is untouched. Rebuild takes a minute or two on 3M rows, so do this
 -- BEFORE the demo, never during it.
 -- ════════════════════════════════════════════════════════════════════════════
 

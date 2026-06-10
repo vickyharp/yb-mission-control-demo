@@ -55,7 +55,7 @@ def load_satellites(refresh=False):
 
 
 def fetch_tles_from_api(pages=5, page_size=100):
-    """Best-effort live TLE fetch. Returns None on any failure — never load-bearing."""
+    """Best-effort live TLE fetch. Returns None on any failure; never load-bearing."""
     try:
         import requests
         sats, seen = [], set()
@@ -118,8 +118,12 @@ def run_backfill(sats, total_rows, days):
                 chunk_len = min(2000, per_sat - chunk_start_idx)
                 buf = io.StringIO()
                 for tick in range(chunk_start_idx, chunk_start_idx + chunk_len):
-                    when = start + interval * tick
-                    for s in sats:
+                    tick_start = start + interval * tick
+                    # Stagger each satellite within the tick interval;
+                    # identical timestamps would hash to one bucket and make
+                    # the bucket index's distribution chunky.
+                    for i, s in enumerate(sats):
+                        when = tick_start + interval * (i / len(sats))
                         pos = propagate(s, when)
                         if pos is None:
                             continue
@@ -133,7 +137,12 @@ def run_backfill(sats, total_rows, days):
                 done_rows = reading_id
                 rate = done_rows / max(time.monotonic() - t0, 0.001)
                 print(f"  {done_rows:,} rows loaded ({rate:,.0f} rows/s)", flush=True)
-            cur.execute("SELECT setval('telemetry_reading_id_seq', %s)", (reading_id,))
+            # Never rewind the sequence below ids a live loader already used
+            # (e.g. one that kept running across a `make refill`).
+            cur.execute(
+                "SELECT setval('telemetry_reading_id_seq', "
+                "GREATEST(%s, (SELECT COALESCE(max(reading_id), 0) FROM telemetry)))",
+                (reading_id,))
     print(f"backfill complete: {reading_id:,} rows in {time.monotonic() - t0:,.0f}s")
 
 
@@ -157,9 +166,15 @@ def run_live(sats, rate):
     window_start = time.monotonic()
     while True:
         batch_start = time.monotonic()
-        when = datetime.now(timezone.utc)
+        now = datetime.now(timezone.utc)
+        sample = random.sample(sats, min(rate, len(sats)))
         batch = []
-        for s in random.sample(sats, min(rate, len(sats))):
+        # Spread timestamps across the past second. Satellites don't report
+        # in lockstep, and identical ts values would all hash to the SAME
+        # bucket, making the bucket index's write spread chunky instead of
+        # smooth.
+        for i, s in enumerate(sample):
+            when = now - timedelta(seconds=i / len(sample))
             pos = propagate(s, when)
             if pos is None:
                 continue
@@ -177,7 +192,7 @@ def run_live(sats, rate):
             # mid-demo (e.g. "schema version mismatch" during CREATE INDEX
             # backfill). Drop the batch, keep flying.
             print(f"  batch dropped ({type(exc).__name__}: "
-                  f"{str(exc).splitlines()[0][:100]}) — retrying next tick", flush=True)
+                  f"{str(exc).splitlines()[0][:100]}), retrying next tick", flush=True)
 
         elapsed_window = time.monotonic() - window_start
         if elapsed_window >= 5.0:
@@ -188,7 +203,7 @@ def run_live(sats, rate):
             window_start = time.monotonic()
 
         # pace to one batch per second; if the DB is slow, the achieved
-        # rate drops below target — that gap IS the demo signal
+        # rate drops below target. That gap IS the demo signal.
         time.sleep(max(0.0, 1.0 - (time.monotonic() - batch_start)))
 
 

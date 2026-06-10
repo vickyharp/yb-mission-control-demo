@@ -1,14 +1,14 @@
 -- ════════════════════════════════════════════════════════════════════════════
--- Pre-create BOTH secondary indexes (presenter mode — run by `make setup`).
+-- Pre-create BOTH secondary indexes (presenter mode; run by `make setup`).
 --
 -- Why pre-create? Index backfill on stage is a demo risk: it can take minutes
 -- and, if interrupted, leaves the index invalid (the planner silently ignores
 -- it). Pre-created indexes are maintained on every write, so during the demo
 -- you switch between read paths instantly with pg_hint_plan hints instead of
 -- running DDL in front of an audience. The self-service walkthrough
--- (03_walkthrough.sql) shows the full CREATE INDEX lifecycle instead.
+-- (sql/lab/walkthrough.sql) shows the full CREATE INDEX lifecycle instead.
 --
--- Run with ysqlsh/psql (uses \gexec — split points must be literals, so we
+-- Run with ysqlsh/psql (uses \gexec; split points must be literals, so we
 -- compute them relative to now() and let the server build the DDL).
 -- ════════════════════════════════════════════════════════════════════════════
 

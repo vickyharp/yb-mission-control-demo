@@ -1,15 +1,15 @@
 -- ════════════════════════════════════════════════════════════════════════════
 -- Monitoring views: where do the rows actually live, per storage layout?
--- Created by `make setup`; used in 03_walkthrough.sql and handy in DBeaver.
+-- Created by `make setup` / `make setup-lab`; used by both walkthroughs and handy in any SQL client.
 --
--- Note: these run count(*) per tablet — fine as an on-demand deep-dive,
+-- Note: these run count(*) per tablet. Fine as an on-demand check,
 -- not something to poll every second. (The dashboard uses a cheaper
 -- recent-sample query instead.)
 -- ════════════════════════════════════════════════════════════════════════════
 
 -- Base table: 6 hash tablets. yb_tablet_metadata exposes each tablet's hash
 -- range and current Raft leader, so we can count rows per tablet exactly.
--- NOTE all views here match relations by NAME, not ::regclass — regclass
+-- NOTE all views here match relations by NAME, never ::regclass; regclass
 -- literals would make the views hard dependencies of the indexes (breaking
 -- DROP INDEX in make reset) and would fail to create before the indexes
 -- exist.
@@ -64,7 +64,7 @@ FROM tablets t
 LEFT JOIN leaders ldr USING (tablet_ordinal);
 
 -- Bucket index: 6 buckets by yb_hash_code(ts) % 6. Every bucket keeps
--- receiving new writes — that is the whole point.
+-- receiving new writes. That is the whole point.
 CREATE OR REPLACE VIEW telemetry_bucket_tablet_counts AS
 WITH counts AS (
     SELECT (yb_hash_code(ts) % 6)::int AS bucket, count(*)::bigint AS row_count
