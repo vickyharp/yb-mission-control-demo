@@ -5,3 +5,4 @@ streamlit-autorefresh>=1.0.1
 plotly>=5.18
 pandas>=2.0
 requests>=2.31
+watchdog>=4.0
