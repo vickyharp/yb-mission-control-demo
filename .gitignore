@@ -17,6 +17,9 @@ yugabyte-client-*.tar.gz
 .vscode/
 .idea/
 
+# Local agent notes (not for the repo)
+CLAUDE.md
+
 # macOS
 .DS_Store
 
