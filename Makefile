@@ -22,7 +22,7 @@ endif
 .DEFAULT_GOAL := help
 .PHONY: help up down clean restart wait diagnose show welcome bootstrap status servers connect shell sql \
         venv db setup setup-lab setup-lab-schema setup-lab-views setup-lab-backfill setup-lab-analyze \
-        demo-mode lab-mode load dash refill reset walkthrough \
+        demo-mode lab-mode load stop-load dash refill reset walkthrough verify-setup \
         kill revive repair-node logs collect-logs
 
 help: ## Show available commands
@@ -42,6 +42,7 @@ down: ## Stop the cluster (data volumes kept)
 
 clean: ## Stop the cluster AND delete all data volumes
 	$(COMPOSE) down -v
+	@rm -rf .yb-data
 
 restart: down up ## Full restart (keeps data)
 
@@ -57,8 +58,11 @@ show: ## Show cluster URLs and status
 welcome: ## Print setup status and next steps (Codespaces attach banner)
 	@bash scripts/welcome.sh
 
-bootstrap: ## Load lab data if empty (devcontainer auto-runs; local: make bootstrap)
+bootstrap: ## Load demo data if empty (devcontainer auto-runs; local: make bootstrap)
 	@MISSION_CONTROL_AUTO_BOOTSTRAP=1 bash scripts/bootstrap-data.sh
+
+verify-setup: ## Sanity check: ~3M rows and both secondary indexes (post-prebuild)
+	@bash scripts/verify-setup.sh
 
 status: ## Show yugabyted status for all nodes
 	@for n in 1 2 3; do \
@@ -83,16 +87,17 @@ venv: ## Create the Python venv and install app dependencies
 	@.venv/bin/pip install -q -r app/requirements.txt
 	@echo "venv ready"
 
-db: ## Create the mission_control database (settings come from sql/core/01_schema.sql)
+db: ## Create the mission_control database (settings come from sql/core/schema.sql)
 	@$(YSQL_ADMIN) -tAc "SELECT 1 FROM pg_database WHERE datname='$(DB)'" | grep -q 1 \
 	  || $(YSQL_ADMIN) -c "CREATE DATABASE $(DB)"
 	@echo "database $(DB) ready"
 
-setup-lab-schema: db ## (internal) lab setup step: schema
-	$(call run_sql_file,sql/core/01_schema.sql)
+setup-lab-schema: wait db ## (internal) lab setup step: schema
+	@bash scripts/stop-load.sh
+	$(call run_sql_file,sql/core/schema.sql)
 
 setup-lab-views: ## (internal) lab setup step: views
-	$(call run_sql_file,sql/core/02_views.sql)
+	$(call run_sql_file,sql/core/views.sql)
 
 setup-lab-backfill: venv ## (internal) lab setup step: historical telemetry
 	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
@@ -100,9 +105,10 @@ setup-lab-backfill: venv ## (internal) lab setup step: historical telemetry
 setup-lab-analyze: ## (internal) lab setup step: ANALYZE
 	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
 
-setup: venv db ## DEMO mode: schema + ~3M rows of real satellite history + both indexes pre-built
-	$(call run_sql_file,sql/core/01_schema.sql)
-	$(call run_sql_file,sql/core/02_views.sql)
+setup: venv wait db ## DEMO mode: schema + ~3M rows of real satellite history + both indexes pre-built
+	@bash scripts/stop-load.sh
+	$(call run_sql_file,sql/core/schema.sql)
+	$(call run_sql_file,sql/core/views.sql)
 	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
 	$(call run_sql_file,sql/core/indexes.sql)
 	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
@@ -125,11 +131,14 @@ reset: demo-mode ## Alias for demo-mode (rebuild both indexes fresh)
 load: venv ## Live telemetry ingest (Ctrl-C to stop): make load [RATE=150]
 	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --rate $(RATE)
 
+stop-load: ## Stop background load generator (Controls page / prior make load)
+	@bash scripts/stop-load.sh
+
 dash: venv ## Run the Mission Control dashboard at http://localhost:8501
 	YSQL_HOST=$(YSQL_HOST) .venv/bin/streamlit run app/1_Dashboard.py --server.headless true
 
-refill: venv ## Reset telemetry to a fresh ~3M-row backfill (TRUNCATE + reload; indexes kept)
-	$(YSQL) -c "TRUNCATE telemetry;"
+refill: venv stop-load ## Reset telemetry to a fresh ~3M-row backfill (DELETE + reload; indexes kept)
+	$(YSQL) -c "DELETE FROM telemetry;"
 	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
 	$(YSQL) -c "ANALYZE telemetry;"
 	@echo "✅ telemetry refilled. If the indexes are weeks old, also run: make demo-mode"

@@ -71,6 +71,17 @@ mc_status_telemetry_rows() {
   fi
 }
 
+mc_status_telemetry_tablets() {
+  local count
+  count="$(mc_status_run_ysql "$MC_STATUS_DB" \
+    "SELECT count(*) FROM yb_tablet_metadata WHERE db_name = current_database() AND relname = 'telemetry'")"
+  if [[ "$count" =~ ^[0-9]+$ ]]; then
+    printf '%s' "$count"
+  else
+    printf '0'
+  fi
+}
+
 mc_status_secondary_indexes() {
   mc_status_run_ysql "$MC_STATUS_DB" \
     "SELECT coalesce(string_agg(indexrelid::regclass::text, ', ' ORDER BY indexrelid::regclass::text), '')

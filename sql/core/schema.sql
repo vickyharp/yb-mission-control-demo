@@ -31,7 +31,11 @@ CREATE TABLE IF NOT EXISTS satellites (
 -- PRIMARY KEY (reading_id HASH) spreads WRITES evenly across 6 tablets,
 -- the standard YugabyteDB default, and a good one. The demo is about what
 -- happens when you then need to READ the newest data.
-CREATE TABLE IF NOT EXISTS telemetry (
+--
+-- Always recreate: IF NOT EXISTS would keep a stale tablet map (2 or 3
+-- tablets from an earlier partial cluster boot) and silently break the demo.
+DROP TABLE IF EXISTS telemetry CASCADE;
+CREATE TABLE telemetry (
     reading_id   BIGSERIAL,
     norad_id     INT              NOT NULL,
     ts           TIMESTAMPTZ      NOT NULL DEFAULT now(),
@@ -41,6 +45,31 @@ CREATE TABLE IF NOT EXISTS telemetry (
     velocity_kms DOUBLE PRECISION NOT NULL,
     PRIMARY KEY (reading_id HASH)
 ) SPLIT INTO 6 TABLETS;
+
+-- Fail fast if the tablet map is wrong. Wrong counts happen when DDL races a
+-- live loader or the cluster is not fully up (run `make wait` first).
+DO $$
+DECLARE
+    node_count  INT;
+    tablet_count INT;
+BEGIN
+    SELECT count(*) INTO node_count FROM yb_servers();
+    IF node_count < 3 THEN
+        RAISE EXCEPTION
+            'cluster has % YSQL nodes (need 3). Run: make wait', node_count;
+    END IF;
+
+    SELECT count(*) INTO tablet_count
+    FROM yb_tablet_metadata
+    WHERE db_name = current_database()
+      AND relname = 'telemetry';
+
+    IF tablet_count <> 6 THEN
+        RAISE EXCEPTION
+            'telemetry has % tablets (need 6). Stop live load (make stop-load) and re-run make setup',
+            tablet_count;
+    END IF;
+END $$;
 
 -- ingest.py reports its measured throughput here; the dashboard displays it.
 -- Watch this number when the range index makes every insert fight for the

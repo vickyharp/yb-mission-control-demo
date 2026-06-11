@@ -125,19 +125,19 @@ def action_button(col, label, target, minutes, confirm, detail):
     """Slow/destructive actions take two clicks; quick ones run immediately."""
     key = f"confirm_{target}"
     if not confirm:
-        if col.button(label, use_container_width=True):
+        if col.button(label, width="stretch"):
             run_make(target, minutes)
     elif st.session_state.get(key):
         col.warning(f"`make {target}` takes ~{minutes}. Not for mid-presentation.")
         yes, no = col.columns(2)
-        if yes.button("Yes, run", type="primary", use_container_width=True,
+        if yes.button("Yes, run", type="primary", width="stretch",
                       key=f"yes_{target}"):
             st.session_state[key] = False
             run_make(target, minutes)
-        if no.button("Cancel", use_container_width=True, key=f"cancel_{target}"):
+        if no.button("Cancel", width="stretch", key=f"cancel_{target}"):
             st.session_state[key] = False
             st.rerun()
-    elif col.button(label, key=f"ask_{target}", use_container_width=True):
+    elif col.button(label, key=f"ask_{target}", width="stretch"):
         st.session_state[key] = True
         st.rerun()
     col.caption(detail)
@@ -174,7 +174,7 @@ elif state["reachable"]:
                "Data is untouched. Open sql/lab/walkthrough.sql to rebuild.")
     action_button(
         a3, "♻️ Refill telemetry (~2 min)", "refill", "2 min", confirm=True,
-        detail="TRUNCATE telemetry and reload a fresh ~3M-row backfill. Keeps "
+        detail="DELETE telemetry rows and reload a fresh ~3M-row backfill. Keeps "
                "whatever indexes exist now. Use if a long-running loader grew "
                "the table past demo size.")
 
@@ -205,7 +205,7 @@ with l2:
                 start_new_session=True)
             PIDFILE.write_text(str(proc.pid))
             st.rerun()
-    elif st.button("⏹ Stop load", use_container_width=True):
+    elif st.button("⏹ Stop load", width="stretch"):
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError:

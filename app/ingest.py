@@ -110,40 +110,60 @@ def run_backfill(sats, total_rows, days):
 
     upsert_satellite_names(sats)
 
-    reading_id = 0
+    # COPY batch size in rows. YugabyteDB can partially apply a large COPY
+    # before surfacing a duplicate-key error; smaller batches limit fallout
+    # and keep retries cheap. reading_id comes from BIGSERIAL (not COPY) so
+    # explicit ids cannot collide with a half-finished prior attempt.
+    copy_batch_rows = 10_000
+    rows_written = 0
     t0 = time.monotonic()
     with connection() as conn:
         with conn.cursor() as cur:
-            for chunk_start_idx in range(0, per_sat, 2000):
-                chunk_len = min(2000, per_sat - chunk_start_idx)
-                buf = io.StringIO()
-                for tick in range(chunk_start_idx, chunk_start_idx + chunk_len):
-                    tick_start = start + interval * tick
-                    # Stagger each satellite within the tick interval;
-                    # identical timestamps would hash to one bucket and make
-                    # the bucket index's distribution chunky.
-                    for i, s in enumerate(sats):
-                        when = tick_start + interval * (i / len(sats))
-                        pos = propagate(s, when)
-                        if pos is None:
-                            continue
-                        reading_id += 1
-                        buf.write(f"{reading_id}\t{s['satelliteId']}\t"
-                                  f"{when.isoformat()}\t{pos[0]}\t{pos[1]}\t{pos[2]}\t{pos[3]}\n")
+            # Clear any partial prior run. Never TRUNCATE here: on hash-sharded
+            # tables YugabyteDB collapses TRUNCATE to one tablet and breaks the
+            # demo's 6-way write spread. DELETE keeps the pre-split layout.
+            cur.execute("DELETE FROM telemetry")
+            cur.execute("SELECT setval('telemetry_reading_id_seq', 1, false)")
+
+            buf = io.StringIO()
+            for tick in range(per_sat):
+                tick_start = start + interval * tick
+                # Stagger each satellite within the tick interval;
+                # identical timestamps would hash to one bucket and make
+                # the bucket index's distribution chunky.
+                for i, s in enumerate(sats):
+                    when = tick_start + interval * (i / len(sats))
+                    pos = propagate(s, when)
+                    if pos is None:
+                        continue
+                    buf.write(f"{s['satelliteId']}\t{when.isoformat()}\t"
+                              f"{pos[0]}\t{pos[1]}\t{pos[2]}\t{pos[3]}\n")
+                    rows_written += 1
+                    if rows_written % copy_batch_rows == 0:
+                        buf.seek(0)
+                        cur.copy_expert(
+                            "COPY telemetry (norad_id, ts, latitude, longitude, "
+                            "altitude_km, velocity_kms) FROM STDIN", buf)
+                        rate = rows_written / max(time.monotonic() - t0, 0.001)
+                        print(f"  {rows_written:,} rows loaded ({rate:,.0f} rows/s)",
+                              flush=True)
+                        buf = io.StringIO()
+
+            if buf.tell():
                 buf.seek(0)
                 cur.copy_expert(
-                    "COPY telemetry (reading_id, norad_id, ts, latitude, longitude, "
+                    "COPY telemetry (norad_id, ts, latitude, longitude, "
                     "altitude_km, velocity_kms) FROM STDIN", buf)
-                done_rows = reading_id
-                rate = done_rows / max(time.monotonic() - t0, 0.001)
-                print(f"  {done_rows:,} rows loaded ({rate:,.0f} rows/s)", flush=True)
+                rate = rows_written / max(time.monotonic() - t0, 0.001)
+                print(f"  {rows_written:,} rows loaded ({rate:,.0f} rows/s)",
+                      flush=True)
+
             # Never rewind the sequence below ids a live loader already used
             # (e.g. one that kept running across a `make refill`).
             cur.execute(
                 "SELECT setval('telemetry_reading_id_seq', "
-                "GREATEST(%s, (SELECT COALESCE(max(reading_id), 0) FROM telemetry)))",
-                (reading_id,))
-    print(f"backfill complete: {reading_id:,} rows in {time.monotonic() - t0:,.0f}s")
+                "(SELECT COALESCE(max(reading_id), 1) FROM telemetry))")
+    print(f"backfill complete: {rows_written:,} rows in {time.monotonic() - t0:,.0f}s")
 
 
 def upsert_satellite_names(sats):

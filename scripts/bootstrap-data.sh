@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Load lab demo data once in devcontainer/Codespaces. Idempotent; safe on every start.
+# Load demo data once in devcontainer/Codespaces. Idempotent; safe on every start.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -7,31 +7,14 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 # shellcheck source=mc-status.sh
 source "$SCRIPT_DIR/mc-status.sh"
 
-run_setup_lab() {
+run_setup_demo() {
   echo ""
-  echo "━━ Loading demo data (lab mode, ~3–5 min) ━━━━━━━━━━━━━━━━━━━"
-  echo "   schema → views → backfill → ANALYZE"
-  echo "   Demo indexes later: make demo-mode"
+  echo "━━ Loading demo data (demo mode) ━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "   schema → views → backfill → indexes → ANALYZE"
   echo ""
 
-  mc_status_write_progress "running" "venv" "Python dependencies"
-  make -C "$REPO_ROOT" venv
-
-  mc_status_write_progress "running" "database" "creating mission_control if needed"
-  make -C "$REPO_ROOT" db
-
-  mc_status_write_progress "running" "schema" "tables and database settings"
-  make -C "$REPO_ROOT" setup-lab-schema
-
-  mc_status_write_progress "running" "views" "observation views"
-  make -C "$REPO_ROOT" setup-lab-views
-
-  mc_status_write_progress "running" "backfill" "starting ~3M row load (slow step)"
-  make -C "$REPO_ROOT" setup-lab-backfill
-
-  mc_status_write_progress "running" "analyze" "updating table statistics"
-  make -C "$REPO_ROOT" setup-lab-analyze
-
+  mc_status_write_progress "running" "setup" "make setup (demo mode, ~5-15 min on small machines)"
+  make -C "$REPO_ROOT" setup
   return 0
 }
 
@@ -53,12 +36,12 @@ main() {
     return 0
   fi
 
-  mc_status_write_progress "running" "bootstrap" "starting lab setup"
+  mc_status_write_progress "running" "bootstrap" "starting demo setup"
 
-  if ! run_setup_lab; then
-    mc_status_write_progress "failed" "bootstrap" "setup-lab failed — see bootstrap.log"
+  if ! run_setup_demo; then
+    mc_status_write_progress "failed" "bootstrap" "demo setup failed — see bootstrap.log"
     echo ""
-    echo "❌ Auto bootstrap failed. Run manually: make setup-lab"
+    echo "❌ Auto bootstrap failed. Run manually: make setup"
     return 1
   fi
 

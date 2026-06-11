@@ -1,151 +1,127 @@
--- ════════════════════════════════════════════════════════════════════════════
---
---   🛰️  MISSION CONTROL: demo walkthrough (presenter script, ~3 minutes)
---
---   THE STORY, told before any SQL:
---
---   You run mission control for a fleet of about 500 satellites. Real
---   ones: the data in this demo is the actual ISS, Hubble, and friends,
---   propagated from their published orbital elements. Every satellite
---   reports its position continuously, all day, forever. Your operators
---   watch a dashboard of the newest telemetry.
---
---   Everything WRITES "now". Everything READS "now". That one sentence is
---   the entire problem. This script is the fix, ending with a small
---   trade-off you make with your eyes open.
---
---   SETUP ASSUMED: `make setup` (demo mode, both indexes pre-built and
---   valid), `make load` streaming, `make dash` open. You never run DDL in
---   this script. pg_hint_plan hints switch the READ path, and the
---   dashboard's "read path" selector uses these exact hints.
---
---   BE HONEST ABOUT ONE THING: both indexes are maintained on EVERY
---   insert, so the range index's hot tablet has been hot since setup.
---   Hints only change the read path. Narrate the write side as a
---   side-by-side comparison: "here is the write path each layout gives
---   you, under identical live load." The hands-on lab
---   (sql/lab/walkthrough.sql) is where a hotspot truly appears and
---   disappears.
---
---   TIP: run every EXPLAIN twice and read the second one; the first pays
---   one-time catalog reads that are noise. For a visual before/after,
---   paste plans into plans-viewer.html (pev2, in this repo).
---
--- ════════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════
+*   DEMO MODE
+*  
+*   The SQL in this file is intended to help with a fast demo where you
+*   do not want to build and drop indexes as you go. If you have run
+*   make setup, the table and 3 indexes are already created and this
+*   SQL will use plan hints to switch among them to see the different plans.
+*
+*   This is not a real world setup, because now you have both indexes 
+*   being maintained on every insert amd you will have the hot tablet for 
+*   the range index even when you have the bucket index available to 
+*   satisfy queries. The hands-on lab (sql/lab/walkthrough.sql) is where 
+*   a hotspot truly appears and disappears.
+*
+*   TIP: run every EXPLAIN twice and read the second one; the first pays
+*   one-time catalog reads that are noise. 
+  ════════════════════════════════════════════════════════════════════════════ */
 
 
--- ─────────────────────────────────────────────────────────────────────────────
--- BEAT 1 · Performance today (the dashboard query, no index help)
--- ─────────────────────────────────────────────────────────────────────────────
--- Flip the dashboard's read path to "no index" first. Refresh sits around
--- a full second. This is why:
 
-EXPLAIN (ANALYZE, DIST, COSTS OFF)
-/*+ SeqScan(telemetry) */
-SELECT norad_id, ts, latitude, longitude, altitude_km, velocity_kms
-FROM telemetry
-ORDER BY ts DESC
-LIMIT 500;
+/*
+ * This is the table the dashboard draws from
+ * 
+ * Every satellite reports its position continuously.
+ * the hashed primary key spreads writes evenly across 6 tablets. 
+ * This structure works well for point lookups, but because
+ * ordering is lost, it becomes an issue for range searches
+ * 
+ */
+create table if not exists telemetry (
+    reading_id   bigserial,
+    norad_id     int              not null,
+    ts           timestamptz      not null default now(),
+    latitude     double precision not null,
+    longitude    double precision not null,
+    altitude_km  double precision not null,
+    velocity_kms double precision not null,
+    primary key (reading_id hash)
+) split into 6 tablets;
 
--- READ IT BOTTOM-UP: Seq Scan reads EVERY row ("Storage Rows Scanned:
--- ~3,000,000"), Sort orders all of them, Limit keeps 500. Hash sharding
--- spread the data beautifully for writes. It also made "newest by time"
--- unanswerable without reading everything, and it gets worse every day.
---
--- Your operators are making decisions on stale telemetry. The monitoring
--- dashboard has become the source of your actual problem.
+/* 
+ * The effect can be seen in the dashboard on the "no index" view, which
+ * runs the following query. The explain plan shows a scan, a sort, and 
+ * then a limit, and it reads every row in the table
+ */
 
+explain (analyze, dist, costs off)
+/*+ seqscan(telemetry) */
+select norad_id, ts, latitude, longitude, altitude_km, velocity_kms
+from telemetry
+order by ts desc
+limit 500;
 
--- ─────────────────────────────────────────────────────────────────────────────
--- BEAT 2 · The obvious fix: a range index on time
--- ─────────────────────────────────────────────────────────────────────────────
--- Dashboard read path → "range index". Refresh snaps to ~2 ms.
+/*
+ * This shows the tablets for the base table
+ */
+select * from telemetry_hash_tablet_counts order by tablet_ordinal;
 
-EXPLAIN (ANALYZE, DIST, COSTS OFF)
-/*+ IndexOnlyScan(telemetry telemetry_by_time) */
-SELECT norad_id, ts, latitude, longitude, altitude_km, velocity_kms
-FROM telemetry
-ORDER BY ts DESC
-LIMIT 500;
+/*
+ * Switching to a range index will fix the read issue. The actual index
+ * created by the make setup will split at 30 day intervals relative to the
+ * day the demo is created, but for easy reference, this is what the index looks
+ * like in general
+ */
+create index if not exists telemetry_by_time on telemetry (ts desc)
+  include (norad_id, latitude, longitude, altitude_km, velocity_kms)
+  split at values (
+    ('2026-05-01 00:00:00+00'),
+    ('2026-04-01 00:00:00+00'),
+    ('2026-03-01 00:00:00+00'),
+    ('2026-02-01 00:00:00+00'),
+    ('2026-01-01 00:00:00+00')
+  );
 
--- Index Only Scan, 500 rows instead of 3,000,000, no sort. Problem solved…
---
--- …now look at the WRITE side. The index is sorted by time and every new
--- reading has ts = NOW, so under this layout every insert lands in the
--- newest tablet:
+/* 
+ * This is the same query as above with just a different plan hint to use
+ * the range index. It now reads only the exact 500 rows necessary because
+ * it is able to scan in order, no sort required.
+ */
+explain (analyze, dist, costs off)
+/*+ indexonlyscan(telemetry telemetry_by_time) */
+select norad_id, ts, latitude, longitude, altitude_km, velocity_kms
+from telemetry
+order by ts desc
+limit 500;
 
-SELECT * FROM telemetry_range_tablet_counts ORDER BY tablet_ordinal;
-
--- Run it again 30 seconds later: ONLY tablet 1 moves. The dashboard's
--- middle heat chart shows the same thing live, one tall bar. The base
--- table spread writes across 6 tablet leaders on 3 nodes; this index
--- funnels them through ONE tablet on ONE node. Per-node CPU at :15433
--- agrees. You bought three nodes and this index's write path uses one.
---
--- This is the classic hot shard. It bites shopping carts, order feeds,
--- event logs, any index led by a monotonically increasing value.
-
-
--- ─────────────────────────────────────────────────────────────────────────────
--- BEAT 3 · The fix that keeps both: the BUCKET index
--- ─────────────────────────────────────────────────────────────────────────────
--- Dashboard read path → "bucket index". Same index plus ONE leading
--- expression, yb_hash_code(ts) % 6: six independent, evenly loaded,
--- time-ordered slices.
-
-EXPLAIN (ANALYZE, DIST, COSTS OFF)
-/*+ IndexOnlyScan(telemetry telemetry_by_bucket) */
-SELECT norad_id, ts, latitude, longitude, altitude_km, velocity_kms
-FROM telemetry
-ORDER BY ts DESC
-LIMIT 500;
-
--- Two things to point at:
---   1. "Merge Streams: 6". The newest 500 from EACH bucket, read in
---      parallel and merge-sorted. The SQL did not change; the planner
---      derived the bucket predicate itself.
---   2. Still no Sort node.
---
--- (That derivation is enabled per-database by sql/core/01_schema.sql:
---    yb_enable_derived_equalities / yb_enable_derived_saops /
---    yb_max_saop_merge_streams. When a customer asks "do I have to change
---    my queries?" the answer is no, set those settings.)
---
--- Write side: every bucket grows, all the time. The right-hand heat chart
--- is six even bars, and tablet leadership is spread across all three
--- nodes:
-
-SELECT * FROM telemetry_bucket_tablet_counts ORDER BY tablet_ordinal;
-SELECT * FROM telemetry_tablet_leaders;
+/*
+ * The problem is that all of these 500 rows, and all of the rows being inserted
+ * by the load generator, are landing on the same tablet. If the load
+ * generator is running you can run this a few times to see the numbers shift
+ */
+select * from telemetry_range_tablet_counts order by tablet_ordinal;
 
 
--- ─────────────────────────────────────────────────────────────────────────────
--- BEAT 4 · The trade-off, eyes open
--- ─────────────────────────────────────────────────────────────────────────────
---                       range index      bucket index
---   index rows read     500              3000  (500 per bucket × 6)
---   sort                none             merge of 6 pre-sorted streams
---   latency             ~2 ms            ~3–4 ms
---
--- The bucket read does 6x the index reads, paid in parallel streams, so
--- it costs a millisecond or two. In exchange: no hot tablet, all nodes on
--- the write path, an insert ceiling about 6x higher. If the table is
--- read-mostly or the key isn't monotonic, skip the bucket and use a plain
--- range index. Bucket when sustained insert rate on a time or serial key
--- is the bottleneck.
+/*
+ * So here is where we can create a bucket index, which creates 6 buckets 
+ * on the hash of ts, then orders the next column exactly as it did 
+ * in the range query above
+ */
+create index if not exists telemetry_by_bucket on telemetry
+  ((yb_hash_code(ts) % 6) asc, ts desc)
+  include (norad_id, latitude, longitude, altitude_km, velocity_kms)
+  split at values ((1), (2), (3), (4), (5));
 
 
--- ─────────────────────────────────────────────────────────────────────────────
--- BEAT 5 · Where else this applies
--- ─────────────────────────────────────────────────────────────────────────────
---   · shopping carts        ("this user's items from the last week")
---   · order / payment feeds ("newest orders first" on a bigserial key)
---   · event & audit logs    ("what just happened?")
---   · IoT / metrics         (this demo)
---
--- Monotonically increasing key plus reads concentrated on the newest
--- data: bucket the index. The bucket count is yours to choose. More
--- buckets spread writes further and add streams to each read; match the
--- count to your tablets and nodes (we used 6).
---
---                                                            🛰️  fin
+/* 
+ * Once again, this is the same query as above, hinted to use
+ * the bucket index. It is doing 500 reads per bucket, and then merging them
+ * without a sort, and taking the limit 500 on the top of that. This means
+ * you're doing 3000 reads instead of 500, but those are balanced across the 
+ * buckets, and as we will see, we don't have the hot shard anymore
+ * 
+ * You don't actually need this hint, either: this is the query the planner
+ * will pick automatically. The hint is here for consistency.
+ */
+explain (analyze, dist, costs off)
+/*+ indexonlyscan(telemetry telemetry_by_bucket) */
+select norad_id, ts, latitude, longitude, altitude_km, velocity_kms
+from telemetry
+order by ts desc
+limit 500;
+
+
+/*
+ * And you can see how the load is spread across the tablets
+ */
+select * from telemetry_bucket_tablet_counts order by tablet_ordinal;

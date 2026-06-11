@@ -24,6 +24,9 @@ yugabyte-client-*.tar.gz
 bootstrap.log
 bootstrap-status.txt
 
+# YugabyteDB cluster data (Codespaces bind mounts; captured in prebuild snapshots)
+.yb-data/
+
 # Python
 .venv/
 __pycache__/

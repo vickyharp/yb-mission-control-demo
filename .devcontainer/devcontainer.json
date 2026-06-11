@@ -3,6 +3,11 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "devenv",
   "workspaceFolder": "/workspace",
+  "hostRequirements": {
+    "cpus": 4,
+    "memory": "8gb",
+    "storage": "32gb"
+  },
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -11,6 +16,7 @@
     }
   },
   "overrideCommand": false,
+  "updateContentCommand": "bash /workspace/scripts/prebuild-setup.sh",
   "postCreateCommand": "bash /workspace/.devcontainer/postCreate.sh",
   "postStartCommand": "bash /workspace/scripts/post-start.sh",
   "postAttachCommand": "bash /workspace/scripts/welcome.sh",

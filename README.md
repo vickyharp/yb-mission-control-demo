@@ -1,11 +1,10 @@
 # 🛰️ Mission Control: a YugabyteDB bucket index demo
 
-This repo provides a database and an app to create a dashboard map for a fleet of about 500 satellites. Real ones: the telemetry in this demo is the actual ISS, Hubble, and friends, computed from
-their published orbital elements using the [TLE API](https://tle.ivanstanojevic.me). Every satellite reports its position continuously, all day, forever.
+This repo sets up a 3-node YugabyteDB cluster and a live dashboard to demonstrate bucket-based indexing. The workload is a fleet of ~500 real satellites, including the ISS, Hubble, and friends, computed from their published orbital elements using the [TLE API](https://tle.ivanstanojevic.me). Every satellite reports its position continuously, all day, forever.
 
-This workload is a perfect illustration of a common problem in database design. **Everything writes "now". Everything reads "now".** The same problem hides in shopping carts, order feeds, event logs, and any other table where an ever-increasing key meets "show me the latest".
+You can run it right here on GitHub with no install, or clone it and run locally with Docker. [![Open in GitHub Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/vickyharp/yb-mission-control-demo) or jump to [Setup instructions](#get-it-running). Otherwise, read on to find out more about the problem space.
 
-## How this thing works
+## Bucket Based Indexes in YugabyteDB
 
 YugabyteDB is an open-source distributed SQL database built on a PostgreSQL-compatible query layer. It runs your existing Postgres SQL and drivers unchanged, while spreading data and workload across multiple nodes with built-in replication and fault tolerance.
 
@@ -65,11 +64,13 @@ appear.
 
 1. **Start the cluster.**
    - *GitHub Codespaces (zero install):* **Code → Codespaces → Create
-     codespace on main.** The cluster starts automatically, then **`make
-     setup-lab` runs on first boot** (~3M rows, no secondary indexes).
-     First boot takes several minutes total. **[CODESPACES.md](CODESPACES.md)**
-     opens in the editor; `make welcome` prints status anytime.
-   - *Local devcontainer (Reopen in Container):* same auto `setup-lab` as
+     codespace on main.** Look for the **Prebuild ready** label when
+     prebuilds are enabled (fast path). Otherwise the cluster starts and
+     **demo mode setup runs automatically** (~3M rows + both indexes).
+     **[CODESPACES.md](CODESPACES.md)** opens in the editor;
+     `make welcome` prints status anytime. Use a **4-core / 8 GB+** machine
+     type when you can.
+   - *Local devcontainer (Reopen in Container):* same auto demo setup as
      Codespaces when you open the devcontainer.
    - *Local Docker on the host:* `make up`. Give Docker ~6 GB of memory.
      **No auto data load** — you run setup yourself (step 2).
@@ -78,7 +79,8 @@ appear.
    loads ~3M readings of real satellite history. A few minutes, one time.
    Codespaces/devcontainer skip this step unless bootstrap failed or you
    deleted the data (`make clean` wipes volumes and triggers a fresh load
-   on the next start).
+   on the next start). Long-running Codespaces may need `make refill`
+   before presenting; prebuilds refresh monthly (see [docs/PREBUILD.md](docs/PREBUILD.md)).
 3. **Bring it to life.** Run `make load` in one terminal for live
    telemetry writes, and `make dash` in another for the dashboard on port
    **8501** (auto-forwarded in a Codespace).
@@ -94,8 +96,8 @@ Create a database and connect to it (`make db` does this, or plain
 `CREATE DATABASE mission_control;` works), then run these in order:
 
 ```
-sql/core/01_schema.sql          tables + required database settings
-sql/core/02_views.sql           observation views
+sql/core/schema.sql          tables + required database settings
+sql/core/views.sql           observation views
 sql/lab/seed_satellites.sql     real satellite names
 sql/lab/backfill.sql            ~3M readings of history (~1–2 min)
 ```
@@ -139,8 +141,8 @@ Finished, or want to start over? `make lab-mode` drops the indexes and
 
 ```
 Makefile                      every command mentioned here; see `make help`
-sql/core/01_schema.sql        tables (telemetry: hash PK, 6 tablets)
-sql/core/02_views.sql         per-tablet row count + leader views
+sql/core/schema.sql        tables (telemetry: hash PK, 6 tablets)
+sql/core/views.sql         per-tablet row count + leader views
 sql/core/indexes.sql          pre-builds both indexes (make setup / demo-mode)
 sql/core/drop_indexes.sql     drops them (make lab-mode)
 sql/demo/walkthrough.sql      🎬 the demo script (~3 min, hint-based)

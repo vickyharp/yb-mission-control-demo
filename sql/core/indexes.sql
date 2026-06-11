@@ -1,17 +1,3 @@
--- ════════════════════════════════════════════════════════════════════════════
--- Pre-create BOTH secondary indexes (presenter mode; run by `make setup`).
---
--- Why pre-create? Index backfill on stage is a demo risk: it can take minutes
--- and, if interrupted, leaves the index invalid (the planner silently ignores
--- it). Pre-created indexes are maintained on every write, so during the demo
--- you switch between read paths instantly with pg_hint_plan hints instead of
--- running DDL in front of an audience. The self-service walkthrough
--- (sql/lab/walkthrough.sql) shows the full CREATE INDEX lifecycle instead.
---
--- Run with ysqlsh/psql (uses \gexec; split points must be literals, so we
--- compute them relative to now() and let the server build the DDL).
--- ════════════════════════════════════════════════════════════════════════════
-
 -- Range index on time, newest first. Split points at 30/60/90/120/150 days
 -- ago carve the 180-day history into 6 tablets; computed at runtime so this
 -- demo works identically next year.
@@ -25,6 +11,24 @@ $f$CREATE INDEX IF NOT EXISTS telemetry_by_time ON telemetry (ts DESC)
   now() - interval '120 days',
   now() - interval '150 days')
 \gexec
+
+/*
+ * If you are running this manually you may not be able to run the above 
+ * in your editor of choice. This alternate SQL can create the index for you:
+ * 
+ * 
+ create index if not exists telemetry_by_time on telemetry (ts desc)
+  include (norad_id, latitude, longitude, altitude_km, velocity_kms)
+  split at values (
+    ('2026-05-01 00:00:00+00'),
+    ('2026-04-01 00:00:00+00'),
+    ('2026-03-01 00:00:00+00'),
+    ('2026-02-01 00:00:00+00'),
+    ('2026-01-01 00:00:00+00')
+  );
+
+ */
+
 
 -- Record the boundaries for the dashboard's heat chart
 DELETE FROM range_split_points;

@@ -60,19 +60,19 @@ def run_make(target, minutes):
 def cluster_button(col, label, target, minutes, confirm, detail):
     key = f"cluster_confirm_{target}"
     if not confirm:
-        if col.button(label, use_container_width=True, key=f"cluster_{target}"):
+        if col.button(label, width="stretch", key=f"cluster_{target}"):
             run_make(target, minutes)
     elif st.session_state.get(key):
         col.warning(f"`make {target}` takes ~{minutes}.")
         yes, no = col.columns(2)
-        if yes.button("Yes, run", type="primary", use_container_width=True,
+        if yes.button("Yes, run", type="primary", width="stretch",
                       key=f"cluster_yes_{target}"):
             st.session_state[key] = False
             run_make(target, minutes)
-        if no.button("Cancel", use_container_width=True, key=f"cluster_no_{target}"):
+        if no.button("Cancel", width="stretch", key=f"cluster_no_{target}"):
             st.session_state[key] = False
             st.rerun()
-    elif col.button(label, key=f"cluster_ask_{target}", use_container_width=True):
+    elif col.button(label, key=f"cluster_ask_{target}", width="stretch"):
         st.session_state[key] = True
         st.rerun()
     col.caption(detail)

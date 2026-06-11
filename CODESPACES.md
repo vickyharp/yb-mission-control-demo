@@ -1,57 +1,39 @@
 # Mission Control on GitHub Codespaces
 
-You opened a Codespace. Here is what already happened and what you do next.
+Your Codespace is getting ready with **demo mode** already in progress: a 3-node YugabyteDB cluster, ~3M rows of satellite telemetry, and both secondary indexes. On a prebuilt Codespace this is usually done when you attach. Otherwise it finishes in the background (often a few minutes on a 4-core machine, longer on 2-core).
 
-## What the Codespace did for you
+Run `make welcome` anytime. If you see a row count and two indexes listed, you are ready.
 
-On first boot (and on every start until data exists), the environment:
+## Run the demo
 
-1. Starts the **3-node YugabyteDB cluster** (first boot can take a few minutes).
-2. Waits until all three nodes answer on YSQL.
-3. Runs **`make setup-lab` automatically** if `telemetry` is still empty (~3M rows, no secondary indexes).
+1. **`make load`** in one terminal (live writes, ~150/sec)
+2. **`make dash`** in another (dashboard at http://localhost:8501)
+3. Open **`sql/demo/walkthrough.sql`** and step through it
 
-That backfill is the slow part. While post-start runs:
+Codespaces forwards port **8501** automatically. Use the **Ports** tab or the forwarded URL.
 
-- **`bootstrap-status.txt`** updates every ~15s (opens automatically in Codespaces).
-- **`bootstrap.log`** has the full log (open in the editor).
-- **`make welcome`** prints phase, elapsed time, row count, and recent log lines.
+Prefer buttons? After `make dash`, use the dashboard **Controls** page. Connection strings are on **Connect**.
 
-If `make welcome` keeps updating elapsed time and row counts during the backfill phase, it is not stuck.
+## Switch to lab mode
 
-Demo mode indexes are **not** pre-built. Run `make demo-mode` (~2 min) when you want the presenter path with both indexes.
+Want to build the indexes yourself instead?
 
-## Check where you are
+1. **`make lab-mode`** (drops both indexes; instant)
+2. **`make load`** and **`make dash`**
+3. Open **`sql/lab/walkthrough.sql`**
 
-```bash
-make welcome     # status banner (also prints on attach)
-make show        # cluster URLs and node count
-```
+You can switch back anytime with **`make demo-mode`** (~2 min).
 
-## When data load finishes
+## Still setting up?
 
-### Step 1 — Start live writes and the dashboard
+`make welcome` prints phase, elapsed time, and row count. These files update while setup runs:
 
-In **two terminals**:
+- **`bootstrap-status.txt`** (opens automatically)
+- **`bootstrap.log`**
 
-```bash
-make load    # terminal 1: ~150 inserts/sec until you stop it
-make dash    # terminal 2: Streamlit on port 8501
-```
+If elapsed time and row counts keep moving, it is not stuck. Pick a **4-core / 8 GB+** machine type when you can; three Yugabyte nodes on a 2-core Codespace run slowly and may OOM (exit 137).
 
-Codespaces forwards port **8501** automatically. Open the **Ports** tab or the forwarded URL for the dashboard.
-
-### Step 2 — Follow the walkthrough
-
-| Path | Script | Extra step |
-|---|---|---|
-| Lab (default here) | `sql/lab/walkthrough.sql` | none |
-| Demo | `sql/demo/walkthrough.sql` | `make demo-mode` first |
-
-Open the script in the editor or connect with `make connect`.
-
-The dashboard **Connect** page lists connection strings. **Controls** can run the same `make` targets without a terminal.
-
-## Useful URLs (after the cluster is up)
+## Useful URLs
 
 | Service | URL |
 |---|---|
@@ -61,10 +43,12 @@ The dashboard **Connect** page lists connection strings. **Controls** can run th
 
 ## Troubleshooting
 
-- **Cluster still starting:** `bash scripts/wait-for-cluster.sh` or `make show`
-- **"Loading demo data" for a long time:** check the Codespace creation log; backfill can take ~5 min
-- **Auto load failed:** `make setup-lab` or `make bootstrap` to retry
-- **Dashboard cannot query telemetry:** load still running, or bootstrap failed; `make welcome`
-- **Node exits with code 137:** out of memory; `make repair-node N=<n>`
+- **Cluster still starting:** `make show` or `bash scripts/wait-for-cluster.sh`
+- **Setup taking a long time:** normal on small machines; watch `bootstrap.log`
+- **Setup failed:** `make setup` to retry
+- **Node exits with code 137:** use a larger machine type or `make repair-node N=<n>`
+- **Wiped data:** `make clean` deletes cluster data; next start reruns setup
 
-More detail lives in [README.md](README.md).
+Cluster images pull from [ghcr.io/vickyharp/yb-3node-demo](https://github.com/vickyharp/yb-3node-demo) (a mirror of `yugabytedb/yugabyte:latest`).
+
+More detail: [README.md](README.md). Prebuild maintainer steps: [docs/PREBUILD.md](docs/PREBUILD.md).

@@ -84,8 +84,8 @@ print_setup_failed() {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ❌ Auto data load failed — ${detail}
 
-   make setup-lab     retry lab path
-   make setup         or demo path (includes indexes)
+   make setup         retry demo path (includes indexes)
+   make setup-lab     or lab path (no indexes)
    make show          cluster status
 EOF
   if [ -f "$MC_STATUS_BOOTSTRAP_LOG" ]; then
@@ -105,14 +105,22 @@ print_ready() {
 ✅ Mission Control ready — ${rows} telemetry rows loaded
 EOF
   if [ -n "$indexes" ]; then
-    echo "   Indexes: ${indexes}"
+    echo "   Demo mode: ${indexes}"
+    cat <<'EOF'
+
+   make load     live writes (~150/sec; keep running)
+   make dash     dashboard → sql/demo/walkthrough.sql
+   make lab-mode switch to hands-on lab (drops indexes)
+EOF
   else
-    echo "   Mode: lab (no secondary indexes yet; make demo-mode for demo)"
-  fi
-  cat <<'EOF'
+    echo "   Mode: lab (no secondary indexes; make demo-mode to restore demo path)"
+    cat <<'EOF'
 
    make load     live writes (~150/sec; keep running)
    make dash     dashboard at http://localhost:8501
+EOF
+  fi
+  cat <<'EOF'
    make show     cluster URLs and status
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 EOF

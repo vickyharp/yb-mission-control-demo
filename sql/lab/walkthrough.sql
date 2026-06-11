@@ -1,95 +1,98 @@
--- ════════════════════════════════════════════════════════════════════════════
---
---   🛰️  MISSION CONTROL: hands-on lab (~30–45 minutes, you run the DDL)
---
---   THE STORY:
---
---   You run mission control for a fleet of about 500 satellites. Every
---   satellite reports its position continuously, all day, forever. Your
---   operators watch a dashboard of the newest telemetry.
---
---   Everything WRITES "now". Everything READS "now". In this lab you will
---   feel the problem that sentence creates, build the obvious fix, watch
---   it backfire, and then build the right fix. All with your own hands.
---
---   GETTING SET UP, two equally good options:
---
---   Option A (with the app):  make setup-lab   → real satellite history
---     loaded, NO secondary indexes. Then `make load` for live telemetry
---     and `make dash` for the dashboard, whose read-path options will
---     light up as YOU create each index.
---
---   Option B (zero app code): create a database, connect to it, and run
---     these files in order with your SQL editor or CLI of choice:
---       sql/core/01_schema.sql        tables + required settings
---       sql/core/02_views.sql         observation views
---       sql/lab/seed_satellites.sql   real satellite names
---       sql/lab/backfill.sql          ~3M rows of history (~1–2 min)
---     Live load (run in a SECOND session of your client, leave it running):
---       \i sql/lab/load.sql           then:   CALL lab_load(600);
---       (or see load.sql for the \watch one-liner variant)
---
---   TIP: run every EXPLAIN twice and read the second one; the first pays
---   one-time catalog reads that are noise. Paste plans into
---   plans-viewer.html (pev2, in this repo) to see them as boxes.
---
--- ════════════════════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════════════════
+*   LAB MODE
+*  
+*   The SQL in this file is intended to help you walk through a full scenario
+*   of adding and testing indexes to learn about bucket indexes. If you just
+*   want the highlights, run make setup and use demo mode. If you are running
+*   this and indexes already exist, make setup-lab will drop the indexes and
+*   get you to a good spot. 
+* 
+*   Best option: Use make load to start the load generator
+*   and make dash to start the dashboard.
+*
+*   If you don't want to use make, or can't get it to work, you will need to
+*   set up the schema manually and you can either use the load generator
+*   or even use a pure sql implementation of the loader. This is a bit harder
+*   but available if you have a limitation keeping you from running the app:
+* 
+*     Create a database, connect to it, and run these files in order:
+*      sql/core/schema.sql        tables + required settings
+*       sql/core/views.sql         observation views
+*       sql/lab/seed_satellites.sql   real satellite names
+*       sql/lab/backfill.sql          ~3M rows of history (~1–2 min)
+*     Live load if desired:   read sql/lab/load.sql and follow directions
+*
+*   TIP: run every EXPLAIN twice and read the second one; the first pays
+*   one-time catalog reads that are noise. 
+  ════════════════════════════════════════════════════════════════════════════ */
 
 
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 1 · Meet the table
--- ─────────────────────────────────────────────────────────────────────────────
--- Hash-sharded on reading_id, YugabyteDB's good default. Confirm there are
--- NO secondary indexes yet, just the primary key:
+/*
+ * This is the table the dashboard draws from (should already be 
+ * created from the above instructions, listed for reference)
+ * 
+ * Every satellite reports its position continuously.
+ * the hashed primary key spreads writes evenly across 6 tablets. 
+ * This structure works well for point lookups, but because
+ * ordering is lost, it becomes an issue for range searches
+ * 
+ */
+create table if not exists telemetry (
+    reading_id   bigserial,
+    norad_id     int              not null,
+    ts           timestamptz      not null default now(),
+    latitude     double precision not null,
+    longitude    double precision not null,
+    altitude_km  double precision not null,
+    velocity_kms double precision not null,
+    primary key (reading_id hash)
+) split into 6 tablets;
 
-\d telemetry
+-- View the rowcount as FYI
+select count(*) as readings from telemetry;
 
-SELECT count(*) AS readings FROM telemetry;
-
--- Writes are spread perfectly across the 6 tablets. Hash sharding is doing
--- its job. This view shows exact per-tablet counts and the Raft leader
--- node for each; it scans the table, so it takes a moment:
-
-SELECT * FROM telemetry_hash_tablet_counts ORDER BY tablet_ordinal;
-
-
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 2 · Feel the problem (the ONE query this whole lab is about)
--- ─────────────────────────────────────────────────────────────────────────────
--- Mission control wants the newest readings (dashboard uses LIMIT 500):
-
-SELECT norad_id, ts, latitude, longitude, altitude_km, velocity_kms
-FROM telemetry
-ORDER BY ts DESC
-LIMIT 500;
-
--- Sluggish, right? Ask the database why (run twice; read the second):
-
-EXPLAIN (ANALYZE, DIST, COSTS OFF)
-SELECT norad_id, ts, latitude, longitude, altitude_km, velocity_kms
-FROM telemetry
-ORDER BY ts DESC
-LIMIT 500;
-
--- READ THE PLAN BOTTOM-UP:
---   Seq Scan  → reads EVERY row ("Storage Rows Scanned: ~3,000,000")
---   Sort      → sorts all of them to find the newest 500
---   Limit     → throws away all but 500
--- Hash sharding scattered rows by reading_id, so answering "newest by
--- time" means reading everything. About a second, every refresh, and
--- worse every day as history grows. The monitoring dashboard has become
--- the source of your actual problem.
+-- View the distribution of rows across the tablets
+select * from telemetry_hash_tablet_counts order by tablet_ordinal;
 
 
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 3 · Build the obvious fix yourself: a range index on time
--- ─────────────────────────────────────────────────────────────────────────────
--- Split points must be literals, so generate DDL relative to today: run
--- this SELECT, copy the one-row result, and execute it. Expect the CREATE
--- INDEX to take a minute or three on 3M rows. That's the online index
--- backfill working through your data, and it's exactly the cost a
--- production team pays when they add an index to a live table.
+/* 
+ * The effect can be seen in the dashboard on the "no index" view, which
+ * runs the following query. 
+ */
+select norad_id, ts, latitude, longitude, altitude_km, velocity_kms
+from telemetry
+order by ts desc
+limit 500;
 
+/* 
+ * Let's take a look at the plan
+ * (Read from the bottom up, if not already familiar)
+ * 
+ * You'll see a sequential scan reading all of the rows 
+ * (look for "storage rows scanned"), followed by a sort of
+ * that entire set to find the newest 500, and then all but 500
+ * of those rows are thrown out by the limit.
+ * 
+ * Basically this query is going to take a little longer to run
+ * every time there is an insert.
+ * 
+ */
+explain (analyze, dist, costs off)
+select norad_id, ts, latitude, longitude, altitude_km, velocity_kms
+from telemetry
+order by ts desc
+limit 500;
+
+
+/*
+ * Switching to a range index will fix the read issue.
+ * 
+ * To keep this demo relevant to whenever you are running it, we're
+ * going to make the split points going back in time from the day 
+ * you are running this, so this next line will output the SQL
+ * to generate the index with the right split points.
+ * 
+ */
 SELECT format(
 $f$CREATE INDEX telemetry_by_time ON telemetry (ts DESC)
   INCLUDE (norad_id, latitude, longitude, altitude_km, velocity_kms)
@@ -98,58 +101,67 @@ $f$CREATE INDEX telemetry_by_time ON telemetry (ts DESC)
   now() - interval '90 days',  now() - interval '120 days',
   now() - interval '150 days') AS copy_paste_and_run_me;
 
--- Record the boundaries so the observation views (and dashboard) can show
--- which tablet each write lands in:
+-- Paste the index creation SQL here and run it:
 
-DELETE FROM range_split_points;
-INSERT INTO range_split_points (ordinal, lower_ts)
-SELECT i, now() - (i * interval '30 days') FROM generate_series(1, 5) AS i;
+select 1 as "Put index create here!"
 
--- IMPORTANT HABIT: before trusting any index, check it's valid. An
--- interrupted backfill leaves indisvalid = false and the planner SILENTLY
--- ignores the index:
+/*
+ * Next we need to record what those split points were
+ * so that some of our supporting views can help show you
+ * where the writes are landing
+ */
 
-SELECT indexrelid::regclass AS index_name, indisvalid
-FROM pg_index WHERE indrelid = 'telemetry'::regclass ORDER BY 1;
+delete from range_split_points;
+insert into range_split_points (ordinal, lower_ts)
+select i, now() - (i * interval '30 days') from generate_series(1, 5) as i;
 
-
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 4 · Enjoy the fix…
--- ─────────────────────────────────────────────────────────────────────────────
-
-EXPLAIN (ANALYZE, DIST, COSTS OFF)
-SELECT norad_id, ts, latitude, longitude, altitude_km, velocity_kms
-FROM telemetry
-ORDER BY ts DESC
-LIMIT 500;
-
--- Index Only Scan, about 500 rows read instead of 3,000,000, and no Sort
--- node because the index is already in time order. From a full second to
--- single-digit milliseconds. If you're running the dashboard, watch it
--- snap to life. Problem solved…
+/*
+ * Creating that index might take a minute and you want to make
+ * sure the backfill finished and the index is valid before
+ * moving on in the lab
+ * 
+ * No reason to think it won't work fine, but if you have a hiccup,
+ * drop and recreate the index
+ */
+select indexrelid::regclass as index_name, indisvalid
+from pg_index where indrelid = 'telemetry'::regclass order by 1;
 
 
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 5 · …problem NOT solved: you traded a read problem for a write one
--- ─────────────────────────────────────────────────────────────────────────────
--- Make sure live load is running (Option A: make load · Option B: the
--- second session with lab_load). The index is sorted by time, and every
--- new reading has ts = NOW. So every insert lands in the SAME tablet, the
--- newest one. Watch it happen:
+/*
+ * Now let's run that same query as before and see how fast it runs,
+ * and check out the plan
+ * 
+ * You'll see an index only scan that reads only the 500 rows that
+ * it needs - no sort is necessary because it's already in order
+ * 
+ * This is likely going to be a switch from 1000 to more like 5 milliseconds
+ */
+explain (analyze, dist, costs off)
+select norad_id, ts, latitude, longitude, altitude_km, velocity_kms
+from telemetry
+order by ts desc
+limit 500;
 
-SELECT * FROM telemetry_range_tablet_counts ORDER BY tablet_ordinal;
+/*
+ * Make sure the load generator is running (make load, or the 
+ * lab load option described in the header)
+ * 
+ * Now let's take a look at where those writes are landing
+ */
 
--- Wait 30 seconds, run it again: ONLY tablet 1's count moves. The base
--- table spread writes across 6 tablet leaders on 3 nodes. YOUR new index
--- funnels every insert through ONE tablet on ONE node. See who's doing all
--- the work (and check per-node CPU at http://localhost:15433):
+select * from telemetry_range_tablet_counts order by tablet_ordinal;
 
-SELECT * FROM telemetry_tablet_leaders;
+/*
+ * Wait a few seconds seconds, and run it again. Only tablet 1
+ * will be showing movement. The base table spreads writes across
+ * 6 tablets and 3 nodes, but this index creates a hot single
+ * tablet on one node
+ * 
+ * You can check per-node CPU at http://localhost:15433
+ *
+ */
+select * from telemetry_range_tablet_counts order by tablet_ordinal;
 
--- You bought three nodes and the write path of this index uses one. This
--- is the classic hot shard. It bites shopping carts, order tables, event
--- logs, any index led by a monotonically increasing value. It works fine,
--- right up until peak hour finds the ceiling of that one tablet.
 
 
 -- ─────────────────────────────────────────────────────────────────────────────
@@ -161,87 +173,73 @@ SELECT * FROM telemetry_tablet_leaders;
 -- of "newest first". Bucket split points are just numbers; they never go
 -- stale. Another minute or three of backfill:
 
-CREATE INDEX telemetry_by_bucket ON telemetry
-  ((yb_hash_code(ts) % 6) ASC, ts DESC)
-  INCLUDE (norad_id, latitude, longitude, altitude_km, velocity_kms)
-  SPLIT AT VALUES ((1), (2), (3), (4), (5));
+/*
+ * Now let's use a bucket index
+ * 
+ * This is fundamentally still a range index, but there is an extra 
+ * leading expression compared to the prior index. yb_hash_code(ts) % 6
+ * assigns every row to one of 6 buckets in a pseudo-random but 
+ * deterministic way. The first column of every row in that bucket's
+ * tablet is 0-6, and the second column is sorted by the second column
+ * of the index, which is ts. 
+ */
+create index telemetry_by_bucket on telemetry
+  ((yb_hash_code(ts) % 6) asc, ts desc)
+  include (norad_id, latitude, longitude, altitude_km, velocity_kms)
+  split at values ((1), (2), (3), (4), (5));
 
--- Validity check, always:
+-- Validity check, just in case
+select indexrelid::regclass as index_name, indisvalid
+from pg_index where indrelid = 'telemetry'::regclass order by 1;
 
-SELECT indexrelid::regclass AS index_name, indisvalid
-FROM pg_index WHERE indrelid = 'telemetry'::regclass ORDER BY 1;
+-- Now drop the prior hot-tablet index so the planner's choice is unambiguous:
+drop index telemetry_by_time;
+delete from range_split_points;
 
--- Now retire the hot-tablet index so the planner's choice is unambiguous:
+/*
+ * Now let's run that query again. We've not changed the original
+ * SQL being run by the dashboard at all, only the underlying
+ * structures. 
+ * 
+ * A few things to notice:
+ * 1) You now get 500 reads per bucket - not the full table scan from before
+ * but also not just 500 total. The total you'll see for index rows
+ * scanned is 3000.
+ * 2) You can see Merge Streams: 6 - this lets you know that there are 6 parallel
+ * streams reading 500 apiece
+ * 2) Because the data is sorted within the buckets, the sort is also happening
+ * during the merge, and you can see the merge sort key, but no separate SORT
+ * step after the index scan
+ */
+explain (analyze, dist, costs off)
+select norad_id, ts, latitude, longitude, altitude_km, velocity_kms
+from telemetry
+order by ts desc
+limit 500;
 
-DROP INDEX telemetry_by_time;
-DELETE FROM range_split_points;
-
-
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 7 · The payoff
--- ─────────────────────────────────────────────────────────────────────────────
--- Same plain query. You change NOTHING:
-
-EXPLAIN (ANALYZE, DIST, COSTS OFF)
-SELECT norad_id, ts, latitude, longitude, altitude_km, velocity_kms
-FROM telemetry
-ORDER BY ts DESC
-LIMIT 500;
-
--- Two things to notice:
---   1. "Merge Streams: 6". The newest 500 from EACH bucket, read in
---      parallel and merge-sorted. The planner derived the bucket predicate
---      (Index Cond: ... = ANY ('{0,1,2,3,4,5}')) all by itself.
---   2. Still no Sort node; each stream is pre-sorted by the index.
---
--- (That derivation needs three database settings, applied by
---  sql/core/01_schema.sql: yb_enable_derived_equalities, yb_enable_derived_saops,
---  yb_max_saop_merge_streams. Without them you'd write the predicate
---  yourself: WHERE yb_hash_code(ts) % 6 IN (0,1,2,3,4,5).)
---
--- And the write side: every bucket grows, all the time, with leaders
--- spread across all three nodes:
-
-SELECT * FROM telemetry_bucket_tablet_counts ORDER BY tablet_ordinal;
-SELECT * FROM telemetry_tablet_leaders;
-
-
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 8 · The trade-off, with your eyes open
--- ─────────────────────────────────────────────────────────────────────────────
--- Compare your step-4 plan (range) with your step-7 plan (bucket):
---
---                       range index      bucket index
---   index rows read     500              3000  (500 per bucket × 6)
---   sort                none             merge of 6 pre-sorted streams
---   latency             ~2 ms            ~3–4 ms
---
--- The bucket read does 6x the index reads, in parallel streams, so you
--- pay a millisecond or two rather than 6x. What you bought: no hot
--- tablet, all nodes on the write path, an insert ceiling about 6x higher.
--- If the table is read-mostly or the key isn't monotonic, skip the bucket
--- and use a plain range index. Bucket when sustained insert rate on a
--- time or serial key is the bottleneck.
+/* 
+ * If you're not seeing the bucket index being used, be sure that 
+ * your database settings are correct (which would be set up automatically by
+ * the make setup / make setup-lab options)
+ * 
+ * These flags turn on yb_enable_derived_equalities, yb_enable_derived_saops,
+ * and yb_max_saop_merge_streams
+ */
 
 
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 9 · Where else this applies, and cleaning up
--- ─────────────────────────────────────────────────────────────────────────────
---   · shopping carts        ("this user's items from the last week")
---   · order / payment feeds ("newest orders first" on a bigserial key)
---   · event & audit logs    ("what just happened?")
---   · IoT / metrics         (this lab)
---
--- Monotonically increasing key plus reads concentrated on the newest
--- data: bucket the index. The bucket count is yours to choose. More
--- buckets spread writes further and add streams to each read; match the
--- count to your tablets and nodes (we used 6).
---
--- CLEAN UP / REDO:
---   make demo-mode   → rebuild BOTH indexes (ready to show someone around)
---   make lab-mode    → drop both indexes (run this lab again)
---   make refill      → fresh 3M-row backfill if the table has grown
---   Option B users:  DROP INDEX telemetry_by_bucket; DELETE FROM
---                    range_split_points;  then start again at step 2.
---
---                                                            🛰️  fin
+/* 
+ * Now, looking at the write side - writes are being distributed across the buckets
+ * as they were with the hash index, eliminating the hotspot
+ */
+select * from telemetry_bucket_tablet_counts order by tablet_ordinal;
+
+/*
+ * Want to run this again?
+ * 
+ * make demo-mode: rebuild BOTH indexes (ready to show someone around)
+ * make refill: fresh 3M-row backfill if you need it
+ * 
+ * Or, manually drop the index and re-run from the top here
+ * drop index telemetry_by_bucket; 
+ */
+

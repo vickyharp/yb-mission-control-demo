@@ -1,7 +1,7 @@
 -- ════════════════════════════════════════════════════════════════════════════
 -- Zero-app backfill: ~3M rows of telemetry history, pure SQL.
 --
--- Prereqs: sql/core/01_schema.sql, sql/core/02_views.sql,
+-- Prereqs: sql/core/schema.sql, sql/core/views.sql,
 --          sql/lab/seed_satellites.sql
 -- Run:     \i sql/lab/backfill.sql        (defines + runs; ~2–4 minutes)
 -- Re-run:  CALL lab_backfill();           (adds rows again; TRUNCATE first

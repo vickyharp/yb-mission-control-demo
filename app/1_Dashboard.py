@@ -245,7 +245,7 @@ if not fleet.empty:
                     bgcolor="rgba(0,0,0,0)")
     fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=420,
                       showlegend=False, paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig, use_container_width=True, key="fleet_map")
+    st.plotly_chart(fig, key="fleet_map")
     st.caption(f"{len(fleet)} satellites at latest known position")
 
 # ── Write-distribution heat ───────────────────────────────────────────────────
@@ -274,7 +274,7 @@ if not heat.empty:
                           xaxis=dict(range=[0, HEAT_SAMPLE]),
                           yaxis=dict(autorange="reversed"),
                           paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-        col.plotly_chart(fig, use_container_width=True, key=key)
+        col.plotly_chart(fig, key=key)
 
     # Base table: which hash-PK tablet (6 equal ranges from SPLIT INTO).
     base_counts = (heat["row_hash"] // (65536 // NUM_BUCKETS)).clip(

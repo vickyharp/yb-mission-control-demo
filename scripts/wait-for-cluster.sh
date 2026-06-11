@@ -19,7 +19,7 @@ print_ready_banner() {
    Connect      → make connect
    Help         → make help
 
-   Devcontainer/Codespaces: make setup-lab runs automatically next (~3–5 min).
+   Devcontainer/Codespaces: demo setup runs automatically if data is not loaded yet.
    Local Docker (make up only): run make setup or make setup-lab yourself.
    See CODESPACES.md or README.
 EOF
