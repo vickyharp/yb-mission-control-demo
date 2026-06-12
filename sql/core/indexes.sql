@@ -1,10 +1,21 @@
+-- Index-build concurrency is caller-controlled via the :nc psql variable.
+-- `make setup` passes nc=NONCONCURRENTLY: setup stops the loader first, so the
+-- faster offline build is safe. Everyone else (demo-mode, reset, manual runs)
+-- leaves :nc empty and gets the default online CONCURRENTLY build, which stays
+-- safe while the live loader is writing.
+\if :{?nc}
+\else
+\set nc ''
+\endif
+
 -- Range index on time, newest first. Split points at 30/60/90/120/150 days
 -- ago carve the 180-day history into 6 tablets; computed at runtime so this
 -- demo works identically next year.
 SELECT format(
-$f$CREATE INDEX IF NOT EXISTS telemetry_by_time ON telemetry (ts DESC)
+$f$CREATE INDEX %s IF NOT EXISTS telemetry_by_time ON telemetry (ts DESC)
   INCLUDE (norad_id, latitude, longitude, altitude_km, velocity_kms)
   SPLIT AT VALUES ((%L), (%L), (%L), (%L), (%L))$f$,
+  :'nc',
   now() - interval '30 days',
   now() - interval '60 days',
   now() - interval '90 days',
@@ -38,7 +49,7 @@ FROM generate_series(1, 5) AS i;
 
 -- Bucket index: one extra leading expression turns the same time-ordered
 -- index into 6 independent, evenly-loaded slices. Split points never rot.
-CREATE INDEX IF NOT EXISTS telemetry_by_bucket ON telemetry
+CREATE INDEX :nc IF NOT EXISTS telemetry_by_bucket ON telemetry
   ((yb_hash_code(ts) % 6) ASC, ts DESC)
   INCLUDE (norad_id, latitude, longitude, altitude_km, velocity_kms)
   SPLIT AT VALUES ((1), (2), (3), (4), (5));

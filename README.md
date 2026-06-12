@@ -64,10 +64,10 @@ appear.
 
 1. **Start the cluster.**
    - *GitHub Codespaces (zero install):* **Code → Codespaces → Create
-     codespace on main.** Look for the **Prebuild ready** label when
-     prebuilds are enabled (fast path). Otherwise the cluster starts and
-     **demo mode setup runs automatically** (~3M rows + both indexes).
-     **[CODESPACES.md](CODESPACES.md)** opens in the editor;
+     codespace on main.** The cluster starts and **demo mode setup runs
+     automatically** (~3M rows + both indexes). First boot takes several
+     minutes; once it finishes everything is ready with no further waiting.
+     **[CODESPACES.md](CODESPACES.md)** opens in the editor and
      `make welcome` prints status anytime. Use a **4-core / 8 GB+** machine
      type when you can.
    - *Local devcontainer (Reopen in Container):* same auto demo setup as
@@ -80,7 +80,7 @@ appear.
    Codespaces/devcontainer skip this step unless bootstrap failed or you
    deleted the data (`make clean` wipes volumes and triggers a fresh load
    on the next start). Long-running Codespaces may need `make refill`
-   before presenting; prebuilds refresh monthly (see [docs/PREBUILD.md](docs/PREBUILD.md)).
+   before presenting.
 3. **Bring it to life.** Run `make load` in one terminal for live
    telemetry writes, and `make dash` in another for the dashboard on port
    **8501** (auto-forwarded in a Codespace).

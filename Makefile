@@ -12,11 +12,14 @@ YSQL_ADMIN  := ysqlsh -h $(YSQL_HOST) -p 5433 -U yugabyte
 YSQL        := $(YSQL_ADMIN) -d $(DB)
 YSQL_TTY    := $(YSQL)
 run_sql_file = $(YSQL) -f $(1)
+# Same as run_sql_file but builds indexes offline. Only safe with no writers.
+run_sql_file_nc = $(YSQL) -v nc=NONCONCURRENTLY -f $(1)
 else
 YSQL_ADMIN  := $(COMPOSE) exec -T yb-node1 /home/yugabyte/bin/ysqlsh -h yb-node1 -p 5433 -U yugabyte
 YSQL        := $(YSQL_ADMIN) -d $(DB)
 YSQL_TTY    := $(COMPOSE) exec yb-node1 /home/yugabyte/bin/ysqlsh -h yb-node1 -p 5433 -U yugabyte -d $(DB)
 run_sql_file = cat $(1) | $(YSQL)
+run_sql_file_nc = cat $(1) | $(YSQL) -v nc=NONCONCURRENTLY
 endif
 
 .DEFAULT_GOAL := help
@@ -110,7 +113,7 @@ setup: venv wait db ## DEMO mode: schema + ~3M rows of real satellite history + 
 	$(call run_sql_file,sql/core/schema.sql)
 	$(call run_sql_file,sql/core/views.sql)
 	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
-	$(call run_sql_file,sql/core/indexes.sql)
+	$(call run_sql_file_nc,sql/core/indexes.sql)
 	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
 	@echo "✅ demo mode ready. make load (terminal 1) + make dash (terminal 2), then sql/demo/walkthrough.sql"
 

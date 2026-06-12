@@ -51,4 +51,4 @@ If elapsed time and row counts keep moving, it is not stuck. Pick a **4-core / 8
 
 Cluster images pull from [ghcr.io/vickyharp/yb-3node-demo](https://github.com/vickyharp/yb-3node-demo) (a mirror of `yugabytedb/yugabyte:latest`).
 
-More detail: [README.md](README.md). Prebuild maintainer steps: [docs/PREBUILD.md](docs/PREBUILD.md).
+More detail: [README.md](README.md).

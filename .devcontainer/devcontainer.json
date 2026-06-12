@@ -3,11 +3,6 @@
   "dockerComposeFile": "docker-compose.yml",
   "service": "devenv",
   "workspaceFolder": "/workspace",
-  "hostRequirements": {
-    "cpus": 4,
-    "memory": "8gb",
-    "storage": "32gb"
-  },
   "features": {
     "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {},
     "ghcr.io/devcontainers/features/github-cli:1": {},
@@ -16,9 +11,8 @@
     }
   },
   "overrideCommand": false,
-  "updateContentCommand": "bash /workspace/scripts/prebuild-setup.sh",
   "postCreateCommand": "bash /workspace/.devcontainer/postCreate.sh",
-  "postStartCommand": "bash /workspace/scripts/post-start.sh",
+  "postStartCommand": "bash /workspace/scripts/wait-for-cluster.sh && bash /workspace/scripts/bootstrap-data.sh",
   "postAttachCommand": "bash /workspace/scripts/welcome.sh",
   "containerEnv": {
     "COMPOSE_PROJECT_NAME": "yb-mission-control-demo",
@@ -44,7 +38,7 @@
       }
     },
     "codespaces": {
-      "openFiles": ["CODESPACES.md", "bootstrap-status.txt"]
+      "openFiles": ["CODESPACES.md"]
     }
   }
 }
