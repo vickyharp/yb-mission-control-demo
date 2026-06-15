@@ -1,5 +1,7 @@
+OFFSET      ?= $(offset)
 COMPOSE     := bash scripts/compose.sh
 YSQL_HOST   ?= $(shell bash scripts/resolve-ysql-host.sh)
+YB_YSQL_PORT ?= $(shell bash -c 'source scripts/load-ports.sh 2>/dev/null && echo $${YB_YSQL_PORT:-5433}')
 PY          := .venv/bin/python
 ROWS        ?= 3000000
 RATE        ?= 150
@@ -8,7 +10,7 @@ DB          ?= mission_control
 # Use local ysqlsh if available (brew tap yugabyte/tap && brew install yugabyte-client),
 # otherwise shell into the container
 ifneq ($(shell command -v ysqlsh 2>/dev/null),)
-YSQL_ADMIN  := ysqlsh -h $(YSQL_HOST) -p 5433 -U yugabyte
+YSQL_ADMIN  := ysqlsh -h $(YSQL_HOST) -p $(YB_YSQL_PORT) -U yugabyte
 YSQL        := $(YSQL_ADMIN) -d $(DB)
 YSQL_TTY    := $(YSQL)
 run_sql_file = $(YSQL) -f $(1)
@@ -26,7 +28,7 @@ endif
 .PHONY: help up down clean restart wait diagnose show welcome bootstrap status servers connect shell sql \
         venv db setup setup-lab setup-lab-schema setup-lab-views setup-lab-backfill setup-lab-analyze \
         demo-mode lab-mode load stop-load dash refill reset walkthrough verify-setup \
-        kill revive repair-node logs collect-logs
+        kill revive repair-node logs collect-logs port-offset reset-ports
 
 help: ## Show available commands
 	@printf "\n\033[1m🛰️  Mission Control: YugabyteDB bucket index demo\033[0m\n\n"
@@ -43,9 +45,19 @@ up: ## Start the 3-node cluster (detached)
 down: ## Stop the cluster (data volumes kept)
 	$(COMPOSE) down
 
-clean: ## Stop the cluster AND delete all data volumes
+clean: ## Stop the cluster AND delete all data volumes (also resets port offset)
 	$(COMPOSE) down -v
 	@rm -rf .yb-data
+	@rm -f .env
+
+port-offset: ## Shift host ports by OFFSET (e.g. make port-offset OFFSET=10): make down first
+	@test -n "$(OFFSET)" || (printf "Usage: make port-offset OFFSET=<number>\n  Example: make port-offset OFFSET=10\n"; exit 1)
+	@bash scripts/write-ports-env.sh "$(OFFSET)"
+	@printf "\033[32mPort offset set to +$(OFFSET). Run: make up\033[0m\n"
+
+reset-ports: ## Reset port offset to defaults (0): make down first
+	@rm -f .env
+	@printf "\033[32mPort offset cleared — defaults restored. Run: make up\033[0m\n"
 
 restart: down up ## Full restart (keeps data)
 

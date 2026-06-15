@@ -4,19 +4,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=compose-lib.sh
 source "$SCRIPT_DIR/compose-lib.sh"
+# shellcheck source=load-ports.sh
+source "$SCRIPT_DIR/load-ports.sh"
 
 YSQL_HOST="$("$SCRIPT_DIR/resolve-ysql-host.sh")"
 TIMEOUT="${CLUSTER_WAIT_TIMEOUT:-600}"
 INTERVAL="${CLUSTER_WAIT_INTERVAL:-5}"
 
 print_ready_banner() {
-  cat <<'EOF'
+  cat <<EOF
 ✅ Cluster ready — 3 nodes alive
 
-   yugabyted UI → http://localhost:15433
-   Master UI    → http://localhost:7000
-   TServer UI   → http://localhost:9000
-   Connect      → make connect
+   yugabyted UI → http://localhost:${YB_YB_UI_PORT}
+   Master UI    → http://localhost:${YB_MASTER_UI_PORT}
+   TServer UI   → http://localhost:${YB_TSERVER_UI_PORT}
+   YSQL (host)  → ysqlsh -h localhost -p ${YB_YSQL_PORT} -U yugabyte
+   Connect      → make connect  (connects via container, always works)
    Help         → make help
 
    Devcontainer/Codespaces: demo setup runs automatically if data is not loaded yet.
@@ -29,10 +32,10 @@ print_connection_info() {
   local nodes="${1:-?}"
   cat <<EOF
 
-   yugabyted UI → http://localhost:15433
-   Master UI    → http://localhost:7000
-   TServer UI   → http://localhost:9000
-   YSQL         → ysqlsh -h ${YSQL_HOST} -p 5433 -U yugabyte
+   yugabyted UI → http://localhost:${YB_YB_UI_PORT}
+   Master UI    → http://localhost:${YB_MASTER_UI_PORT}
+   TServer UI   → http://localhost:${YB_TSERVER_UI_PORT}
+   YSQL         → ysqlsh -h ${YSQL_HOST} -p ${YB_YSQL_PORT} -U yugabyte
    Connect      → make connect
    Help         → make help
 EOF
@@ -45,10 +48,10 @@ EOF
 get_node_count() {
   local count=""
   if command -v ysqlsh >/dev/null 2>&1; then
-    count="$(ysqlsh -h "$YSQL_HOST" -p 5433 -U yugabyte \
+    count="$(ysqlsh -h "$YSQL_HOST" -p "$YB_YSQL_PORT" -U yugabyte \
       -tAc "SELECT count(*) FROM yb_servers()" 2>/dev/null || true)"
   elif command -v psql >/dev/null 2>&1; then
-    count="$(psql -h "$YSQL_HOST" -p 5433 -U yugabyte \
+    count="$(psql -h "$YSQL_HOST" -p "$YB_YSQL_PORT" -U yugabyte \
       -tAc "SELECT count(*) FROM yb_servers()" 2>/dev/null || true)"
   elif command -v docker >/dev/null 2>&1; then
     count="$(compose_cmd exec -T yb-node1 /home/yugabyte/bin/ysqlsh -h yb-node1 -p 5433 -U yugabyte \
@@ -62,7 +65,7 @@ get_node_count() {
 print_diagnostics() {
   echo ""
   echo "━━ Cluster diagnostics ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-  echo "YSQL host : $YSQL_HOST:5433"
+  echo "YSQL host : $YSQL_HOST:$YB_YSQL_PORT"
   echo "Timeout   : ${TIMEOUT}s"
   echo ""
 
@@ -82,7 +85,7 @@ print_diagnostics() {
     echo "yb_servers() count: unavailable"
     if command -v ysqlsh >/dev/null 2>&1; then
       echo ""
-      ysqlsh -h "$YSQL_HOST" -p 5433 -U yugabyte -c "SELECT 1;" 2>&1 | head -5 || true
+      ysqlsh -h "$YSQL_HOST" -p "$YB_YSQL_PORT" -U yugabyte -c "SELECT 1;" 2>&1 | head -5 || true
     fi
   fi
 
@@ -94,7 +97,7 @@ print_diagnostics() {
 wait_for_cluster() {
   local elapsed=0 count=""
 
-  echo "⏳ Waiting for 3 nodes via ${YSQL_HOST}:5433 (timeout ${TIMEOUT}s)..."
+  echo "⏳ Waiting for 3 nodes via ${YSQL_HOST}:${YB_YSQL_PORT} (timeout ${TIMEOUT}s)..."
 
   while [ "$elapsed" -lt "$TIMEOUT" ]; do
     count="$(get_node_count || true)"

@@ -34,7 +34,7 @@ compose_resolve_project() {
   local detected=""
   detected="$(docker ps \
     --filter 'label=com.docker.compose.service=yb-node1' \
-    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | head -1)"
+    --format '{{.Label "com.docker.compose.project"}}' 2>/dev/null | head -1 || true)"
 
   if [ -n "$detected" ]; then
     COMPOSE_PROJECT_NAME="$detected"
@@ -58,7 +58,7 @@ docker: command not found.
 Inside the devcontainer/Codespaces, rebuild the container so the Docker CLI
 and socket mount are available. Until then you can still use ysqlsh:
 
-  ysqlsh -h yb-node1 -p 5433 -U yugabyte
+  ysqlsh -h yb-node1 -p "${YB_YSQL_PORT:-5433}" -U yugabyte
 EOF
     exit 1
   fi
