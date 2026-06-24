@@ -14,7 +14,6 @@ Run: make dash  (streamlit run app/1_Dashboard.py)
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
-from streamlit_autorefresh import st_autorefresh
 
 from db import query
 
@@ -120,78 +119,9 @@ def append_trail(trail, lat, lon):
         del trail[:-120]
 
 
-# ── Controls + data fetch ─────────────────────────────────────────────────────
-# TELEMETRY_SQL is timed inside db.query(); that ms value is the demo.
-
-indexes = get_indexes()
-paths = read_paths(indexes)
-
-path_col, refresh_col = st.columns([3, 2])
-read_path = path_col.radio("Read path (demo)", list(paths), horizontal=True,
-                           label_visibility="collapsed")
-refresh_choice = refresh_col.radio("Refresh", list(REFRESH_CHOICES), index=2,
-                                   horizontal=True, label_visibility="collapsed")
-pace_note = refresh_col.empty()
-# Autorefresh is mounted at the bottom of the page (after the map) so toggling
-# ⏸ paused doesn't insert/remove a component above the map and shift layout.
-
-hint = paths.get(read_path, "")
-try:
-    latest, latency_ms = query(TELEMETRY_SQL.format(hint=hint))
-except Exception as exc:
-    st.error(f"Cannot query telemetry. Is the cluster up and `make setup` "
-             f"(or `make setup-lab`) done? See the Controls page. ({exc})")
-    st.stop()
-
-try:
-    stats, _ = query("SELECT inserts_per_sec, updated_at FROM ingest_stats WHERE id = 1")
-except Exception:
-    stats = []
-
-df = pd.DataFrame(latest)
-# Glow = norad_ids appearing in rows 1–100 (newest 100 readings, not 100 sats).
-glow_ids = set(df.head(GLOW_LIMIT)["norad_id"]) if not df.empty else set()
-
-# Map: dedupe the batch (newest-first → first row per norad_id wins), merge
-# into a persistent store so sats missing from this batch keep their last spot.
-positions = st.session_state.setdefault("last_positions", {})
-if not df.empty:
-    for row in df.drop_duplicates("norad_id", keep="first").to_dict("records"):
-        positions[int(row["norad_id"])] = row
-
-fleet = pd.DataFrame(positions.values()) if positions else pd.DataFrame()
-if not fleet.empty:
-    fleet["name"] = fleet["norad_id"].map(get_satellite_names()).fillna("(unknown)")
-
-# ── Header metrics ────────────────────────────────────────────────────────────
-
-title_col, m1, m2, m3 = st.columns([3, 1, 1, 1])
-title_col.markdown("## 🛰️ Mission Control")
-m1.metric(f"{latency_color(latency_ms)} Telemetry refresh",
-          f"{latency_ms:,.0f} ms",
-          help=f"Wall-clock time of: SELECT … FROM telemetry "
-               f"ORDER BY ts DESC LIMIT {TELEMETRY_LIMIT}")
-if stats and stats[0]["inserts_per_sec"] is not None:
-    m2.metric("📡 Ingest rate", f"{stats[0]['inserts_per_sec']:,.0f}/s",
-              help="As reported by ingest.py; drops when writes contend on a hot tablet")
-else:
-    m2.metric("📡 Ingest rate", "—", help="Start `make load` to begin live ingest")
-if not df.empty:
-    age_s = (pd.Timestamp.now(tz="UTC") - df["ts"].max()).total_seconds()
-    m3.metric("🕐 Data age", f"{age_s:,.1f} s",
-              help="Now minus the newest reading on the dashboard")
-
-st.caption("Secondary indexes on telemetry: "
-           + (", ".join(f"`{i}`" for i in indexes) if indexes else
-              "none. LAB mode: build them in sql/lab/walkthrough.sql"))
-
-# ── Map ───────────────────────────────────────────────────────────────────────
-# Three layers: dim fleet, bright "in newest 100 readings", featured sats + trails.
-# Positions come from last_positions; glow from the first 100 rows of the batch.
-
-if not fleet.empty:
+def render_map(fleet, glow_ids, positions):
+    """Three layers: dim fleet, bright "in newest 100", featured sats + trails."""
     others = fleet[~fleet["norad_id"].isin(TRACKED_SATELLITES)]
-
     in_latest = others["norad_id"].isin(glow_ids)
     fresh, rest = others[in_latest], others[~in_latest]
 
@@ -199,10 +129,9 @@ if not fleet.empty:
     names = get_satellite_names()
     for norad_id in TRACKED_SATELLITES:
         pos = positions.get(norad_id)
-        if not pos:
-            continue
-        append_trail(trails.setdefault(norad_id, []),
-                     float(pos["latitude"]), float(pos["longitude"]))
+        if pos:
+            append_trail(trails.setdefault(norad_id, []),
+                         float(pos["latitude"]), float(pos["longitude"]))
 
     fig = go.Figure()
     fig.add_trace(go.Scattergeo(
@@ -246,22 +175,20 @@ if not fleet.empty:
     fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=420,
                       showlegend=False, paper_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig, key="fleet_map")
-    st.caption(f"{len(fleet)} satellites at latest known position")
 
-# ── Write-distribution heat ───────────────────────────────────────────────────
-# Same HEAT_SAMPLE rows, three different tablet assignments. One tall bar =
-# one hot tablet. Range/bucket panels show "not created yet" until indexes exist.
 
-st.markdown(f"#### Where are the last {HEAT_SAMPLE:,} readings stored?")
+def render_heat(indexes):
+    """Same HEAT_SAMPLE rows, three tablet assignments. One tall bar = hot tablet."""
+    st.markdown(f"#### Where are the last {HEAT_SAMPLE:,} readings stored?")
+    try:
+        heat_rows, _ = query(HEAT_SAMPLE_SQL)
+        heat = pd.DataFrame(heat_rows)
+    except Exception as exc:
+        st.caption(f"heat charts unavailable: {exc}")
+        return
+    if heat.empty:
+        return
 
-try:
-    heat_rows, _ = query(HEAT_SAMPLE_SQL)
-    heat = pd.DataFrame(heat_rows)
-except Exception as exc:
-    heat = pd.DataFrame()
-    st.caption(f"heat charts unavailable: {exc}")
-
-if not heat.empty:
     c1, c2, c3 = st.columns(3)
 
     def bars(col, title, counts, color, key):
@@ -306,14 +233,90 @@ if not heat.empty:
     st.caption("Every write lands in exactly one tablet per layout. "
                "One tall bar = one hot tablet = one node doing all the work.")
 
-# Always mount autorefresh so pause ↔ live doesn't add/remove a component and
-# jump the layout. Paused uses a multi-day interval (no practical reruns).
-# The interval never drops below 1.5x the measured query time plus a little
-# headroom; in the seq-scan state a "2s" refresh would otherwise schedule
-# 1-second-plus queries on top of each other.
-_refresh_ms = REFRESH_CHOICES[refresh_choice] or 2_147_483_647
-_floor_ms = int(latency_ms * 1.5) + 250
-if REFRESH_CHOICES[refresh_choice] and _floor_ms > _refresh_ms:
-    _refresh_ms = _floor_ms
-    pace_note.caption(f"paced to query speed: every {_refresh_ms / 1000:.1f} s")
-st_autorefresh(interval=_refresh_ms, key="refresh")
+
+# ── Page shell (renders once; never reruns on the timer) ───────────────────────
+# The controls and title live out here. Only live_view() below reruns on the
+# refresh clock, so the page never dims or reflows: the earlier whole-page
+# st_autorefresh blocked on the slow query mid-render and jumped the layout.
+
+indexes = get_indexes()
+paths = read_paths(indexes)
+
+st.markdown("## 🛰️ Mission Control")
+path_col, refresh_col = st.columns([3, 2])
+read_path = path_col.radio("Read path (demo)", list(paths), horizontal=True,
+                           label_visibility="collapsed", key="read_path")
+refresh_choice = refresh_col.radio("Refresh", list(REFRESH_CHOICES), index=2,
+                                   horizontal=True, label_visibility="collapsed",
+                                   key="refresh_choice")
+
+# Refresh cadence is recomputed each time the fragment runs (the seq-scan path
+# is slow enough that a fixed 2s would queue queries). The floor stays at 1.5x
+# the last measured query time; None means paused.
+base_ms = REFRESH_CHOICES[refresh_choice]
+last_ms = st.session_state.get("last_latency_ms", 0)
+run_every = None
+if base_ms is not None:
+    run_every = max(base_ms, int(last_ms * 1.5) + 250) / 1000.0
+
+
+@st.fragment(run_every=run_every)
+def live_view():
+    hint = paths.get(st.session_state["read_path"], "")
+    try:
+        latest, latency_ms = query(TELEMETRY_SQL.format(hint=hint))
+    except Exception as exc:
+        st.error(f"Cannot query telemetry. Is the cluster up and `make setup` "
+                 f"(or `make setup-lab`) done? See the Controls page. ({exc})")
+        return
+    st.session_state["last_latency_ms"] = latency_ms
+
+    try:
+        stats, _ = query(
+            "SELECT inserts_per_sec, updated_at FROM ingest_stats WHERE id = 1")
+    except Exception:
+        stats = []
+
+    df = pd.DataFrame(latest)
+    # Glow = norad_ids in rows 1–100 (newest 100 readings, not 100 sats).
+    glow_ids = set(df.head(GLOW_LIMIT)["norad_id"]) if not df.empty else set()
+
+    # Map: dedupe the batch (newest-first → first row per norad_id wins), merge
+    # into a persistent store so sats missing this batch keep their last spot.
+    positions = st.session_state.setdefault("last_positions", {})
+    if not df.empty:
+        for row in df.drop_duplicates("norad_id", keep="first").to_dict("records"):
+            positions[int(row["norad_id"])] = row
+    fleet = pd.DataFrame(positions.values()) if positions else pd.DataFrame()
+    if not fleet.empty:
+        fleet["name"] = fleet["norad_id"].map(get_satellite_names()).fillna("(unknown)")
+
+    m1, m2, m3 = st.columns(3)
+    m1.metric(f"{latency_color(latency_ms)} Telemetry refresh",
+              f"{latency_ms:,.0f} ms",
+              help=f"Wall-clock time of: SELECT … FROM telemetry "
+                   f"ORDER BY ts DESC LIMIT {TELEMETRY_LIMIT}")
+    if stats and stats[0]["inserts_per_sec"] is not None:
+        m2.metric("📡 Ingest rate", f"{stats[0]['inserts_per_sec']:,.0f}/s",
+                  help="As reported by ingest.py; drops when writes contend on a hot tablet")
+    else:
+        m2.metric("📡 Ingest rate", "—", help="Start `make load` to begin live ingest")
+    if not df.empty:
+        age_s = (pd.Timestamp.now(tz="UTC") - df["ts"].max()).total_seconds()
+        m3.metric("🕐 Data age", f"{age_s:,.1f} s",
+                  help="Now minus the newest reading on the dashboard")
+    else:
+        m3.metric("🕐 Data age", "—")
+
+    st.caption("Secondary indexes on telemetry: "
+               + (", ".join(f"`{i}`" for i in indexes) if indexes else
+                  "none. LAB mode: build them in sql/lab/walkthrough.sql"))
+
+    if not fleet.empty:
+        render_map(fleet, glow_ids, positions)
+        st.caption(f"{len(fleet)} satellites at latest known position")
+
+    render_heat(indexes)
+
+
+live_view()
