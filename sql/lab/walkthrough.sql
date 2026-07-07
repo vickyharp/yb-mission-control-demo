@@ -103,7 +103,7 @@ $f$CREATE INDEX telemetry_by_time ON telemetry (ts DESC)
 
 -- Paste the index creation SQL here and run it:
 
-select 1 as "Put index create here!"
+select 1 as "Put index create here!";
 
 /*
  * Next we need to record what those split points were
@@ -152,13 +152,14 @@ limit 500;
 select * from telemetry_range_tablet_counts order by tablet_ordinal;
 
 /*
- * Wait a few seconds seconds, and run it again. Only tablet 1
- * will be showing movement. The base table spreads writes across
- * 6 tablets and 3 nodes, but this index creates a hot single
- * tablet on one node
- * 
- * You can check per-node CPU at http://localhost:15433
+ * Wait a few seconds, and run it again. Only tablet 1 will be
+ * showing movement. The base table spreads writes across 6 tablets
+ * and 3 nodes, but this index creates a hot single tablet on one node.
  *
+ * The leader column is the tell: one node is coordinating every write
+ * to that tablet. (Per-node CPU is a muddy signal here because the
+ * load generator connects through node1 either way; trust the leader
+ * column instead.)
  */
 select * from telemetry_range_tablet_counts order by tablet_ordinal;
 

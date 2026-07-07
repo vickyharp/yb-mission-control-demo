@@ -90,9 +90,10 @@ FROM counts c
 LEFT JOIN leaders ldr ON ldr.tablet_ordinal = c.bucket + 1;
 
 -- Which node leads how many tablets of each layout? With the range index
--- under live load, the single hot tablet means ONE node does all the index
--- write work; the bucket index spreads leadership (and writes) across all
--- three. Pair this with per-node CPU in the yugabyted UI (:15433).
+-- under live load, the single hot tablet means ONE node coordinates all the
+-- index writes; the bucket index spreads leadership (and writes) across all
+-- three. The leader columns are the honest signal here; per-node CPU is
+-- muddied by every client connecting through node1.
 CREATE OR REPLACE VIEW telemetry_tablet_leaders AS
 SELECT relname AS layout, leader, count(*) AS tablets
 FROM yb_tablet_metadata

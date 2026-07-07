@@ -115,7 +115,7 @@ setup-lab-views: ## (internal) lab setup step: views
 	$(call run_sql_file,sql/core/views.sql)
 
 setup-lab-backfill: venv ## (internal) lab setup step: historical telemetry
-	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
+	YSQL_HOST=$(YSQL_HOST) YSQL_PORT=$(YB_YSQL_PORT) $(PY) app/ingest.py --backfill --rows $(ROWS)
 
 setup-lab-analyze: ## (internal) lab setup step: ANALYZE
 	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
@@ -124,7 +124,7 @@ setup: venv wait db ## DEMO mode: schema + ~3M rows of real satellite history + 
 	@bash scripts/stop-load.sh
 	$(call run_sql_file,sql/core/schema.sql)
 	$(call run_sql_file,sql/core/views.sql)
-	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
+	YSQL_HOST=$(YSQL_HOST) YSQL_PORT=$(YB_YSQL_PORT) $(PY) app/ingest.py --backfill --rows $(ROWS)
 	$(call run_sql_file_nc,sql/core/indexes.sql)
 	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
 	@echo "✅ demo mode ready. make load (terminal 1) + make dash (terminal 2), then sql/demo/walkthrough.sql"
@@ -144,17 +144,17 @@ lab-mode: ## Switch to lab mode: drop both secondary indexes (instant)
 reset: demo-mode ## Alias for demo-mode (rebuild both indexes fresh)
 
 load: venv ## Live telemetry ingest (Ctrl-C to stop): make load [RATE=150]
-	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --rate $(RATE)
+	YSQL_HOST=$(YSQL_HOST) YSQL_PORT=$(YB_YSQL_PORT) $(PY) app/ingest.py --rate $(RATE)
 
 stop-load: ## Stop background load generator (Controls page / prior make load)
 	@bash scripts/stop-load.sh
 
 dash: venv ## Run the Mission Control dashboard at http://localhost:8501
-	YSQL_HOST=$(YSQL_HOST) .venv/bin/streamlit run app/1_Dashboard.py --server.headless true
+	YSQL_HOST=$(YSQL_HOST) YSQL_PORT=$(YB_YSQL_PORT) .venv/bin/streamlit run app/1_Dashboard.py --server.headless true
 
 refill: venv stop-load ## Reset telemetry to a fresh ~3M-row backfill (DELETE + reload; indexes kept)
 	$(YSQL) -c "DELETE FROM telemetry;"
-	YSQL_HOST=$(YSQL_HOST) $(PY) app/ingest.py --backfill --rows $(ROWS)
+	YSQL_HOST=$(YSQL_HOST) YSQL_PORT=$(YB_YSQL_PORT) $(PY) app/ingest.py --backfill --rows $(ROWS)
 	$(YSQL) -c "ANALYZE telemetry;"
 	@echo "✅ telemetry refilled. If the indexes are weeks old, also run: make demo-mode"
 

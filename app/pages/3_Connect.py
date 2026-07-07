@@ -21,7 +21,7 @@ YSQL_USER = DB_PARAMS["user"]
 YSQL_DB = DB_PARAMS["dbname"]
 UIS = [
     ("Mission Control dashboard", "http://localhost:8501", "live map and read-path demo"),
-    ("yugabyted", "http://localhost:15433", "cluster overview; watch CPU during the hot-tablet beat"),
+    ("yugabyted", "http://localhost:15433", "cluster overview and node health"),
     ("YB-Master", "http://localhost:7000", "tablet distribution and Raft leaders"),
     ("YB-TServer", "http://localhost:9000", "per-node tablet stats"),
 ]

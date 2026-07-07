@@ -20,6 +20,10 @@ yugabyte-client-*.tar.gz
 # Local agent notes (not for the repo)
 CLAUDE.md
 
+# Screen recordings (never commit; they are huge)
+*.mov
+*.mp4
+
 # macOS
 .DS_Store
 
@@ -34,3 +38,6 @@ bootstrap-status.txt
 .venv/
 __pycache__/
 *.pyc
+
+# Session handoff scratch (local only)
+HANDOFF.md

@@ -94,13 +94,22 @@ def get_satellite_names():
     return {r["norad_id"]: r["name"] for r in rows}
 
 
-@st.cache_data(ttl=15)
+@st.cache_data(ttl=5)
 def get_indexes():
-    """Secondary indexes on telemetry; drives read-path radio and heat panels."""
+    """VALID secondary indexes on telemetry; drives read-path radio and panels.
+
+    Validity matters: an index mid-backfill (or one an interrupted backfill
+    left invalid) is ignored by the planner, so offering it as a read path
+    would show a hint that silently does nothing. to_regclass keeps this
+    harmless before setup has created the table.
+    """
     rows, _ = query("""
-        SELECT indexname FROM pg_indexes
-        WHERE tablename = 'telemetry' AND indexname NOT LIKE '%pkey'
-        ORDER BY indexname""")
+        SELECT indexrelid::regclass::text AS indexname
+        FROM pg_index
+        WHERE indrelid = to_regclass('telemetry')
+          AND indexrelid::regclass::text NOT LIKE '%pkey'
+          AND indisvalid
+        ORDER BY 1""")
     return [r["indexname"] for r in rows]
 
 
@@ -242,6 +251,11 @@ def render_heat(indexes):
 indexes = get_indexes()
 paths = read_paths(indexes)
 
+# A remembered selection can point at an index that was just dropped (lab
+# mode). Clear it so the radio falls back to "auto" instead of erroring.
+if st.session_state.get("read_path") not in paths:
+    st.session_state.pop("read_path", None)
+
 st.markdown("## 🛰️ Mission Control")
 path_col, refresh_col = st.columns([3, 2])
 read_path = path_col.radio("Read path (demo)", list(paths), horizontal=True,
@@ -262,6 +276,13 @@ if base_ms is not None:
 
 @st.fragment(run_every=run_every)
 def live_view():
+    # The fragment reruns on the clock; the shell (radio options, this
+    # closure's `indexes`) does not. Re-check the catalog each tick and
+    # rebuild the whole page when it changes, so a lab user's CREATE or
+    # DROP INDEX lights up the radio and panels without a manual click.
+    if get_indexes() != indexes:
+        st.rerun(scope="app")
+
     hint = paths.get(st.session_state["read_path"], "")
     try:
         latest, latency_ms = query(TELEMETRY_SQL.format(hint=hint))
@@ -291,7 +312,10 @@ def live_view():
     if not fleet.empty:
         fleet["name"] = fleet["norad_id"].map(get_satellite_names()).fillna("(unknown)")
 
-    m1, m2, m3 = st.columns(3)
+    # Fixed-height container so the row keeps its space while the fragment
+    # reruns. Without it, Streamlit clears the (unkeyed) metrics at the start
+    # of a rerun and everything below slid up until the query returned.
+    m1, m2, m3 = st.container(height=140, border=False).columns(3)
     m1.metric(f"{latency_color(latency_ms)} Telemetry refresh",
               f"{latency_ms:,.0f} ms",
               help=f"Wall-clock time of: SELECT … FROM telemetry "

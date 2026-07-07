@@ -51,15 +51,17 @@ def connection():
                 discard = True
         raise
     finally:
-        if conn.closed:
-            return
-        try:
-            pool.putconn(conn, close=discard)
-        except Exception:
+        # Cleanup only. No return/raise in here: a return inside finally
+        # silently discards an in-flight exception, which turned a plain
+        # "database is in recovery" error into an UnboundLocalError upstream.
+        if not conn.closed:
             try:
-                conn.close()
+                pool.putconn(conn, close=discard)
             except Exception:
-                pass
+                try:
+                    conn.close()
+                except Exception:
+                    pass
 
 
 def query(sql, params=None, _retried=False):
