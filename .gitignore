@@ -24,6 +24,9 @@ CLAUDE.md
 *.mov
 *.mp4
 
+# Video script/recording guide (local prep, not for the repo)
+video/
+
 # macOS
 .DS_Store
 
