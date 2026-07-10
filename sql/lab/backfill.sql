@@ -1,11 +1,12 @@
 -- ════════════════════════════════════════════════════════════════════════════
--- Zero-app backfill: ~3M rows of telemetry history, pure SQL.
+-- Zero-app backfill: ~1M rows of telemetry history, pure SQL.
 --
 -- Prereqs: sql/core/schema.sql, sql/core/views.sql,
 --          sql/lab/seed_satellites.sql
--- Run:     \i sql/lab/backfill.sql        (defines + runs; ~2–4 minutes)
+-- Run:     \i sql/lab/backfill.sql        (defines + runs; ~1–2 minutes)
 -- Re-run:  CALL lab_backfill();           (adds rows again; TRUNCATE first
 --                                          if you want a fresh start)
+-- More:    CALL lab_backfill(3000000);    (heavier load; pass a row count)
 --
 -- Positions are synthetic-but-plausible pseudo-orbits (SQL can't propagate
 -- real orbital elements; the app's ingest.py does that). What matters for
@@ -34,7 +35,7 @@ SELECT
 $func$;
 
 CREATE OR REPLACE PROCEDURE lab_backfill(
-    total_rows bigint DEFAULT 3000000,
+    total_rows bigint DEFAULT 1000000,
     days       int    DEFAULT 180)
 LANGUAGE plpgsql AS $proc$
 DECLARE

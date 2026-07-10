@@ -145,17 +145,17 @@ def action_button(col, label, target, minutes, confirm, detail):
 
 if state["rows"] is None and state["reachable"]:
     st.markdown("**First run**")
-    st.caption("Pick a mode to create the schema and load ~3M rows of history.")
+    st.caption("Pick a mode to create the schema and load ~1M rows of history.")
     f1, f2 = st.columns(2)
     action_button(
-        f1, "🎬 Set up DEMO mode (~3–5 min)", "setup", "3–5 min", confirm=True,
-        detail="Creates schema, loads ~3M rows of real satellite history, "
+        f1, "🎬 Set up DEMO mode (~2–3 min)", "setup", "2–3 min", confirm=True,
+        detail="Creates schema, loads ~1M rows of real satellite history, "
                "and pre-builds both indexes (`telemetry_by_time`, "
                "`telemetry_by_bucket`). Ready to present or run "
                "sql/demo/walkthrough.sql with hint-based read paths.")
     action_button(
-        f2, "🧪 Set up LAB mode (~2–4 min)", "setup-lab", "2–4 min", confirm=True,
-        detail="Same schema and ~3M rows, but no secondary indexes. You build "
+        f2, "🧪 Set up LAB mode (~1–2 min)", "setup-lab", "1–2 min", confirm=True,
+        detail="Same schema and ~1M rows, but no secondary indexes. You build "
                "them yourself in sql/lab/walkthrough.sql and watch the dashboard "
                "read-path options light up as each index appears.")
 
@@ -173,8 +173,8 @@ elif state["reachable"]:
                "to auto; range and bucket heat charts show \"not created yet\". "
                "Data is untouched. Open sql/lab/walkthrough.sql to rebuild.")
     action_button(
-        a3, "♻️ Refill telemetry (~2 min)", "refill", "2 min", confirm=True,
-        detail="DELETE telemetry rows and reload a fresh ~3M-row backfill. Keeps "
+        a3, "♻️ Refill telemetry (~1 min)", "refill", "1 min", confirm=True,
+        detail="DELETE telemetry rows and reload a fresh ~1M-row backfill. Keeps "
                "whatever indexes exist now. Use if a long-running loader grew "
                "the table past demo size.")
 

@@ -24,7 +24,7 @@ go through three states:
 
 | | reads | writes |
 |---|---|---|
-| **1. Hash PK only** (today) | 🔴 scans all ~3M rows + sorts, ~1000 ms every refresh | 🟢 spread across 6 tablets |
+| **1. Hash PK only** (today) | 🔴 scans all ~1M rows + sorts, noticeably slow every refresh | 🟢 spread across 6 tablets |
 | **2. Range index on time** (the obvious fix) | 🟢 500 rows, ~2 ms | 🔴 every insert hits ONE hot tablet on ONE node |
 | **3. Bucket index** (the fix that keeps both) | 🟢 6 parallel merge streams, no sort, ~3 ms | 🟢 spread across 6 tablets on 3 nodes |
 
@@ -65,7 +65,7 @@ appear.
 1. **Start the cluster.**
    - *GitHub Codespaces (zero install):* **Code → Codespaces → Create
      codespace on main.** The cluster starts and **demo mode setup runs
-     automatically** (~3M rows + both indexes). First boot takes several
+     automatically** (~1M rows + both indexes). First boot takes several
      minutes; once it finishes everything is ready with no further waiting.
      **[CODESPACES.md](CODESPACES.md)** opens in the editor and
      `make welcome` prints status anytime. Use a **4-core / 8 GB+** machine
@@ -76,11 +76,13 @@ appear.
      **No auto data load** — you run setup yourself (step 2).
 2. **Pick your mode** (local Docker and retries): `make setup` or
    `make setup-lab`. Either one creates the `mission_control` database and
-   loads ~3M readings of real satellite history. A few minutes, one time.
+   loads ~1M readings of real satellite history. A minute or two, one time.
    Codespaces/devcontainer skip this step unless bootstrap failed or you
    deleted the data (`make clean` wipes volumes and triggers a fresh load
    on the next start). Long-running Codespaces may need `make refill`
-   before presenting.
+   before presenting. Want a bigger table (e.g. for a beefier machine or
+   to make the seq scan hurt more)? `make setup ROWS=3000000` or
+   `make refill ROWS=3000000`.
 3. **Bring it to life.** Run `make load` in one terminal for live
    telemetry writes, and `make dash` in another for the dashboard on port
    **8501** (auto-forwarded in a Codespace).
@@ -99,7 +101,7 @@ Create a database and connect to it (`make db` does this, or plain
 sql/core/schema.sql          tables + required database settings
 sql/core/views.sql           observation views
 sql/lab/seed_satellites.sql     real satellite names
-sql/lab/backfill.sql            ~3M readings of history (~1–2 min)
+sql/lab/backfill.sql            ~1M readings of history (~1–2 min)
 ```
 
 For live load, open a second session, run `sql/lab/load.sql`, then
@@ -132,7 +134,7 @@ learn to check `pg_index.indisvalid` before trusting any index. Then you
 watch your new index funnel every live write into one tablet, build the
 bucket index, and watch the planner adopt it.
 
-Each `CREATE INDEX` takes a minute or two on 3M rows.
+Each `CREATE INDEX` takes a minute or two on 1M rows (longer if you loaded more).
 
 Finished, or want to start over? `make lab-mode` drops the indexes and
 `make refill` resets the data.

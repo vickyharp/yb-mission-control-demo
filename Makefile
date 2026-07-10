@@ -3,7 +3,7 @@ COMPOSE     := bash scripts/compose.sh
 YSQL_HOST   ?= $(shell bash scripts/resolve-ysql-host.sh)
 YB_YSQL_PORT ?= $(shell bash -c 'source scripts/load-ports.sh 2>/dev/null && echo $${YB_YSQL_PORT:-5433}')
 PY          := .venv/bin/python
-ROWS        ?= 3000000
+ROWS        ?= 1000000
 RATE        ?= 150
 DB          ?= mission_control
 
@@ -76,7 +76,7 @@ welcome: ## Print setup status and next steps (Codespaces attach banner)
 bootstrap: ## Load demo data if empty (devcontainer auto-runs; local: make bootstrap)
 	@MISSION_CONTROL_AUTO_BOOTSTRAP=1 bash scripts/bootstrap-data.sh
 
-verify-setup: ## Sanity check: ~3M rows and both secondary indexes (post-prebuild)
+verify-setup: ## Sanity check: ~1M rows and both secondary indexes (post-prebuild)
 	@bash scripts/verify-setup.sh
 
 status: ## Show yugabyted status for all nodes
@@ -120,7 +120,7 @@ setup-lab-backfill: venv ## (internal) lab setup step: historical telemetry
 setup-lab-analyze: ## (internal) lab setup step: ANALYZE
 	$(YSQL) -c "ANALYZE telemetry;" -c "ANALYZE satellites;"
 
-setup: venv wait db ## DEMO mode: schema + ~3M rows of real satellite history + both indexes pre-built
+setup: venv wait db ## DEMO mode: schema + ~1M rows of real satellite history + both indexes pre-built
 	@bash scripts/stop-load.sh
 	$(call run_sql_file,sql/core/schema.sql)
 	$(call run_sql_file,sql/core/views.sql)
@@ -150,9 +150,9 @@ stop-load: ## Stop background load generator (Controls page / prior make load)
 	@bash scripts/stop-load.sh
 
 dash: venv ## Run the Mission Control dashboard at http://localhost:8501
-	YSQL_HOST=$(YSQL_HOST) YSQL_PORT=$(YB_YSQL_PORT) .venv/bin/streamlit run app/1_Dashboard.py --server.headless true
+	YSQL_HOST=$(YSQL_HOST) YSQL_PORT=$(YB_YSQL_PORT) .venv/bin/streamlit run app/1_Dashboard.py --server.headless true --server.port 8501
 
-refill: venv stop-load ## Reset telemetry to a fresh ~3M-row backfill (DELETE + reload; indexes kept)
+refill: venv stop-load ## Reset telemetry to a fresh ~1M-row backfill (DELETE + reload; indexes kept)
 	$(YSQL) -c "DELETE FROM telemetry;"
 	YSQL_HOST=$(YSQL_HOST) YSQL_PORT=$(YB_YSQL_PORT) $(PY) app/ingest.py --backfill --rows $(ROWS)
 	$(YSQL) -c "ANALYZE telemetry;"

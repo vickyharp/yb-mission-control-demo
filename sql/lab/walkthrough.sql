@@ -19,7 +19,7 @@
 *      sql/core/schema.sql        tables + required settings
 *       sql/core/views.sql         observation views
 *       sql/lab/seed_satellites.sql   real satellite names
-*       sql/lab/backfill.sql          ~3M rows of history (~1–2 min)
+*       sql/lab/backfill.sql          ~1M rows of history (~1–2 min)
 *     Live load if desired:   read sql/lab/load.sql and follow directions
 *
 *   TIP: run every EXPLAIN twice and read the second one; the first pays
@@ -238,7 +238,7 @@ select * from telemetry_bucket_tablet_counts order by tablet_ordinal;
  * Want to run this again?
  * 
  * make demo-mode: rebuild BOTH indexes (ready to show someone around)
- * make refill: fresh 3M-row backfill if you need it
+ * make refill: fresh 1M-row backfill if you need it
  * 
  * Or, manually drop the index and re-run from the top here
  * drop index telemetry_by_bucket; 

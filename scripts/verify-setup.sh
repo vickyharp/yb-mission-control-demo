@@ -6,7 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=mc-status.sh
 source "$SCRIPT_DIR/mc-status.sh"
 
-TARGET_ROWS="${ROWS:-3000000}"
+TARGET_ROWS="${ROWS:-1000000}"
 MIN_ROWS=$((TARGET_ROWS * 90 / 100))
 ROWS="$(mc_status_telemetry_rows)"
 TABLETS="$(mc_status_telemetry_tablets)"

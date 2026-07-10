@@ -16,6 +16,10 @@ yugabyte-client-*.tar.gz
 # Editor settings (user-specific)
 .vscode/
 .idea/
+.claude/
+
+# Local scratch tools (not part of the demo)
+pev2.html
 
 # Local agent notes (not for the repo)
 CLAUDE.md
@@ -44,3 +48,6 @@ __pycache__/
 
 # Session handoff scratch (local only)
 HANDOFF.md
+
+# Distilled demo-building lessons (local only)
+DEMO-LESSONS.md

@@ -1,6 +1,6 @@
 # Mission Control on GitHub Codespaces
 
-Your Codespace is getting ready with **demo mode** already in progress: a 3-node YugabyteDB cluster, ~3M rows of satellite telemetry, and both secondary indexes. On a prebuilt Codespace this is usually done when you attach. Otherwise it finishes in the background (often a few minutes on a 4-core machine, longer on 2-core).
+Your Codespace is getting ready with **demo mode** already in progress: a 3-node YugabyteDB cluster, ~1M rows of satellite telemetry, and both secondary indexes. On a prebuilt Codespace this is usually done when you attach. Otherwise it finishes in the background (often a few minutes on a 4-core machine, longer on 2-core).
 
 Run `make welcome` anytime. If you see a row count and two indexes listed, you are ready.
 

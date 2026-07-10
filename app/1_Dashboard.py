@@ -128,8 +128,8 @@ def append_trail(trail, lat, lon):
         del trail[:-120]
 
 
-def render_map(fleet, glow_ids, positions):
-    """Three layers: dim fleet, bright "in newest 100", featured sats + trails."""
+def build_map_figure(fleet, glow_ids, positions):
+    """Build the fleet map figure (caller paints it)."""
     others = fleet[~fleet["norad_id"].isin(TRACKED_SATELLITES)]
     in_latest = others["norad_id"].isin(glow_ids)
     fresh, rest = others[in_latest], others[~in_latest]
@@ -183,7 +183,38 @@ def render_map(fleet, glow_ids, positions):
                     bgcolor="rgba(0,0,0,0)")
     fig.update_layout(margin=dict(l=0, r=0, t=0, b=0), height=420,
                       showlegend=False, paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig, key="fleet_map")
+    return fig
+
+
+def paint_metrics(slots, latency_ms, ingest_rate, data_age_s):
+    """Write the three headline metrics into empty() slots.
+
+    Always paints all three: a value of None or False renders as an em-dash
+    placeholder. On a brand-new session the labels are on screen before the
+    first query returns, so values fill in without the row assembling
+    piece by piece.
+    """
+    m1_ph, m2_ph, m3_ph = slots
+    if latency_ms is not None:
+        m1_ph.metric(f"{latency_color(latency_ms)} Telemetry refresh",
+                     f"{latency_ms:,.0f} ms",
+                     help=f"Wall-clock time of: SELECT … FROM telemetry "
+                          f"ORDER BY ts DESC LIMIT {TELEMETRY_LIMIT}")
+    else:
+        m1_ph.metric("⚪ Telemetry refresh", "—",
+                     help=f"Wall-clock time of: SELECT … FROM telemetry "
+                          f"ORDER BY ts DESC LIMIT {TELEMETRY_LIMIT}")
+    if ingest_rate not in (None, False):
+        m2_ph.metric("📡 Ingest rate", f"{ingest_rate:,.0f}/s",
+                     help="As reported by ingest.py; drops when writes contend on a hot tablet")
+    else:
+        m2_ph.metric("📡 Ingest rate", "—",
+                     help="Start `make load` to begin live ingest")
+    if data_age_s not in (None, False):
+        m3_ph.metric("🕐 Data age", f"{data_age_s:,.1f} s",
+                     help="Now minus the newest reading on the dashboard")
+    else:
+        m3_ph.metric("🕐 Data age", "—")
 
 
 def render_heat(indexes):
@@ -283,6 +314,39 @@ def live_view():
     if get_indexes() != indexes:
         st.rerun(scope="app")
 
+    # Emit the whole above-the-fold block BEFORE the timed query, painting the
+    # last tick's values, then swap in fresh ones once the query returns.
+    # Fragment ticks don't need this (verified on 1.50: a rerun leaves prior
+    # content on screen until each element is re-emitted), but app-level reruns
+    # (radio click, index-change rerun) and brand-new sessions do: there the
+    # fragment's output doesn't exist yet, and without the fixed-height boxes
+    # and early paint the metrics and map assemble on screen piece by piece,
+    # shoving everything below down as each one lands.
+    metrics_box = st.container(height=140, border=False)
+    m1, m2, m3 = metrics_box.columns(3)
+    metric_slots = (m1.empty(), m2.empty(), m3.empty())
+    paint_metrics(
+        metric_slots,
+        st.session_state.get("last_latency_ms"),
+        st.session_state.get("last_ingest_rate"),
+        st.session_state.get("last_data_age_s"),
+    )
+
+    st.caption("Secondary indexes on telemetry: "
+               + (", ".join(f"`{i}`" for i in indexes) if indexes else
+                  "none. LAB mode: build them in sql/lab/walkthrough.sql"))
+
+    map_box = st.container(height=420, border=False)
+    map_ph = map_box.empty()
+    if st.session_state.get("last_map_fig") is not None:
+        map_ph.plotly_chart(st.session_state["last_map_fig"],
+                            use_container_width=True, key="fleet_map_last_tick")
+
+    fleet_cap_ph = st.empty()
+    if st.session_state.get("last_fleet_count"):
+        fleet_cap_ph.caption(
+            f"{st.session_state['last_fleet_count']} satellites at latest known position")
+
     hint = paths.get(st.session_state["read_path"], "")
     try:
         latest, latency_ms = query(TELEMETRY_SQL.format(hint=hint))
@@ -312,33 +376,30 @@ def live_view():
     if not fleet.empty:
         fleet["name"] = fleet["norad_id"].map(get_satellite_names()).fillna("(unknown)")
 
-    # Fixed-height container so the row keeps its space while the fragment
-    # reruns. Without it, Streamlit clears the (unkeyed) metrics at the start
-    # of a rerun and everything below slid up until the query returned.
-    m1, m2, m3 = st.container(height=140, border=False).columns(3)
-    m1.metric(f"{latency_color(latency_ms)} Telemetry refresh",
-              f"{latency_ms:,.0f} ms",
-              help=f"Wall-clock time of: SELECT … FROM telemetry "
-                   f"ORDER BY ts DESC LIMIT {TELEMETRY_LIMIT}")
+    ingest_rate = None
     if stats and stats[0]["inserts_per_sec"] is not None:
-        m2.metric("📡 Ingest rate", f"{stats[0]['inserts_per_sec']:,.0f}/s",
-                  help="As reported by ingest.py; drops when writes contend on a hot tablet")
+        ingest_rate = stats[0]["inserts_per_sec"]
+        st.session_state["last_ingest_rate"] = ingest_rate
     else:
-        m2.metric("📡 Ingest rate", "—", help="Start `make load` to begin live ingest")
-    if not df.empty:
-        age_s = (pd.Timestamp.now(tz="UTC") - df["ts"].max()).total_seconds()
-        m3.metric("🕐 Data age", f"{age_s:,.1f} s",
-                  help="Now minus the newest reading on the dashboard")
-    else:
-        m3.metric("🕐 Data age", "—")
+        st.session_state["last_ingest_rate"] = False
+        ingest_rate = False
 
-    st.caption("Secondary indexes on telemetry: "
-               + (", ".join(f"`{i}`" for i in indexes) if indexes else
-                  "none. LAB mode: build them in sql/lab/walkthrough.sql"))
+    data_age_s = None
+    if not df.empty:
+        data_age_s = (pd.Timestamp.now(tz="UTC") - df["ts"].max()).total_seconds()
+        st.session_state["last_data_age_s"] = data_age_s
+    else:
+        st.session_state["last_data_age_s"] = False
+        data_age_s = False
+
+    paint_metrics(metric_slots, latency_ms, ingest_rate, data_age_s)
 
     if not fleet.empty:
-        render_map(fleet, glow_ids, positions)
-        st.caption(f"{len(fleet)} satellites at latest known position")
+        fig = build_map_figure(fleet, glow_ids, positions)
+        st.session_state["last_map_fig"] = fig
+        map_ph.plotly_chart(fig, use_container_width=True, key="fleet_map_fresh")
+        st.session_state["last_fleet_count"] = len(fleet)
+        fleet_cap_ph.caption(f"{len(fleet)} satellites at latest known position")
 
     render_heat(indexes)
 

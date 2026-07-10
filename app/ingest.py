@@ -246,8 +246,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--backfill", action="store_true",
                         help="bulk-load historical telemetry, then exit")
-    parser.add_argument("--rows", type=int, default=3_000_000,
-                        help="backfill target row count (default 3M)")
+    parser.add_argument("--rows", type=int, default=1_000_000,
+                        help="backfill target row count (default 1M; pass --rows 3000000 or more for a heavier load)")
     parser.add_argument("--days", type=int, default=180,
                         help="backfill history length in days (default 180)")
     parser.add_argument("--rate", type=int, default=150,
